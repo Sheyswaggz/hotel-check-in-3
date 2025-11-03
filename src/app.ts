@@ -1,5 +1,6 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import { healthRouter } from './routes/health.routes.js';
+import { authRouter } from './routes/auth.routes.js';
 
 /**
  * Health check response interface
@@ -88,6 +89,9 @@ function createApp(): Express {
 
   // Register health check routes
   app.use('/health', healthRouter);
+
+  // Register authentication routes
+  app.use('/api/auth', authRouter);
 
   // 404 handler for undefined routes
   app.use((req: Request, _res: Response, next: NextFunction): void => {

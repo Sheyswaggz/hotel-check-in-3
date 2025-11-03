@@ -8,6 +8,8 @@ const ENV_VARS = {
   NODE_ENV: 'NODE_ENV',
   DATABASE_URL: 'DATABASE_URL',
   JWT_SECRET: 'JWT_SECRET',
+  JWT_EXPIRES_IN: 'JWT_EXPIRES_IN',
+  JWT_ENABLED: 'JWT_ENABLED',
 } as const;
 
 /**
@@ -17,6 +19,15 @@ const NODE_ENVIRONMENTS = ['development', 'production', 'test'] as const;
 type NodeEnvironment = (typeof NODE_ENVIRONMENTS)[number];
 
 /**
+ * JWT configuration interface
+ */
+interface JWTConfig {
+  readonly secret: string;
+  readonly expiresIn: string;
+  readonly enabled: boolean;
+}
+
+/**
  * Application configuration interface with strict typing
  */
 interface EnvironmentConfig {
@@ -24,6 +35,7 @@ interface EnvironmentConfig {
   readonly nodeEnv: NodeEnvironment;
   readonly databaseUrl: string;
   readonly jwtSecret: string;
+  readonly jwt: JWTConfig;
 }
 
 /**
@@ -131,20 +143,28 @@ function validateDatabaseUrl(value: unknown): string {
 /**
  * Validates JWT secret meets minimum security requirements
  */
-function validateJwtSecret(value: unknown): string {
+function validateJwtSecret(value: unknown, nodeEnv: NodeEnvironment): string {
   const secret = validateRequiredString(value, ENV_VARS.JWT_SECRET);
 
   const MIN_SECRET_LENGTH = 32;
   if (secret.length < MIN_SECRET_LENGTH) {
-    throw new ConfigurationError(
-      `JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters long for security, received length: ${secret.length}`
-    );
+    if (nodeEnv === 'production') {
+      throw new ConfigurationError(
+        `JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters long for security, received length: ${secret.length}`
+      );
+    } else {
+      console.warn(
+        `⚠️  WARNING: JWT_SECRET is only ${secret.length} characters. ` +
+          `Minimum ${MIN_SECRET_LENGTH} characters required for production.`
+      );
+    }
   }
 
   // Warn if using example/default secret
   const dangerousSecrets = [
     'your-super-secret-jwt-key-change-this-in-production-min-32-chars',
     'change-this-in-production',
+    'your-secret-key-change-in-production',
     'secret',
     'jwt-secret',
   ];
@@ -157,6 +177,54 @@ function validateJwtSecret(value: unknown): string {
   }
 
   return secret;
+}
+
+/**
+ * Validates JWT expiration time format
+ */
+function validateJwtExpiresIn(value: unknown): string {
+  if (value === undefined || value === null || value === '') {
+    return '24h'; // Default value
+  }
+
+  const expiresIn = validateRequiredString(value, ENV_VARS.JWT_EXPIRES_IN);
+
+  // Validate format: number followed by unit (s, m, h, d)
+  const validFormat = /^\d+[smhd]$/;
+  if (!validFormat.test(expiresIn)) {
+    throw new ConfigurationError(
+      `JWT_EXPIRES_IN must be in format: number + unit (s=seconds, m=minutes, h=hours, d=days), received: ${expiresIn}`
+    );
+  }
+
+  return expiresIn;
+}
+
+/**
+ * Validates JWT enabled flag
+ */
+function validateJwtEnabled(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') {
+    return true; // Default value
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const lowerValue = value.toLowerCase().trim();
+    if (lowerValue === 'true' || lowerValue === '1' || lowerValue === 'yes') {
+      return true;
+    }
+    if (lowerValue === 'false' || lowerValue === '0' || lowerValue === 'no') {
+      return false;
+    }
+  }
+
+  throw new ConfigurationError(
+    `JWT_ENABLED must be a boolean value (true/false), received: ${value}`
+  );
 }
 
 /**
@@ -175,7 +243,14 @@ function loadEnvironmentConfig(): EnvironmentConfig {
   const errors: string[] = [];
 
   // Check for required environment variables
-  for (const varName of Object.values(ENV_VARS)) {
+  const requiredVars = [
+    ENV_VARS.PORT,
+    ENV_VARS.NODE_ENV,
+    ENV_VARS.DATABASE_URL,
+    ENV_VARS.JWT_SECRET,
+  ];
+
+  for (const varName of requiredVars) {
     if (!(varName in process.env) || process.env[varName] === undefined) {
       missingVars.push(varName);
     }
@@ -193,6 +268,8 @@ function loadEnvironmentConfig(): EnvironmentConfig {
   let nodeEnv: NodeEnvironment;
   let databaseUrl: string;
   let jwtSecret: string;
+  let jwtExpiresIn: string;
+  let jwtEnabled: boolean;
 
   try {
     port = validatePort(process.env[ENV_VARS.PORT]);
@@ -219,11 +296,27 @@ function loadEnvironmentConfig(): EnvironmentConfig {
   }
 
   try {
-    jwtSecret = validateJwtSecret(process.env[ENV_VARS.JWT_SECRET]);
+    jwtSecret = validateJwtSecret(process.env[ENV_VARS.JWT_SECRET], nodeEnv);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     errors.push(message);
     jwtSecret = ''; // Fallback for type safety
+  }
+
+  try {
+    jwtExpiresIn = validateJwtExpiresIn(process.env[ENV_VARS.JWT_EXPIRES_IN]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    errors.push(message);
+    jwtExpiresIn = '24h'; // Fallback for type safety
+  }
+
+  try {
+    jwtEnabled = validateJwtEnabled(process.env[ENV_VARS.JWT_ENABLED]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    errors.push(message);
+    jwtEnabled = true; // Fallback for type safety
   }
 
   // If any validation errors occurred, throw with all error messages
@@ -238,6 +331,11 @@ function loadEnvironmentConfig(): EnvironmentConfig {
     nodeEnv,
     databaseUrl,
     jwtSecret,
+    jwt: {
+      secret: jwtSecret,
+      expiresIn: jwtExpiresIn,
+      enabled: jwtEnabled,
+    },
   };
 
   // Log configuration (excluding sensitive data) in non-production environments
@@ -250,6 +348,11 @@ function loadEnvironmentConfig(): EnvironmentConfig {
         '//***:***@'
       ),
       jwtSecret: '***' + environmentConfig.jwtSecret.slice(-4),
+      jwt: {
+        secret: '***' + environmentConfig.jwt.secret.slice(-4),
+        expiresIn: environmentConfig.jwt.expiresIn,
+        enabled: environmentConfig.jwt.enabled,
+      },
     });
   }
 
@@ -266,5 +369,5 @@ export const environment: EnvironmentConfig = loadEnvironmentConfig();
 /**
  * Export types for use in other modules
  */
-export type { EnvironmentConfig, NodeEnvironment };
+export type { EnvironmentConfig, NodeEnvironment, JWTConfig };
 export { ConfigurationError };
