@@ -1,5 +1,6 @@
 import { app } from './app.js';
 import { environment } from './config/environment.js';
+import { DatabaseService } from './services/database.service.js';
 
 /**
  * Server instance type for graceful shutdown handling
@@ -63,6 +64,12 @@ async function gracefulShutdown(signal: ShutdownSignal): Promise<void> {
   }, SHUTDOWN_TIMEOUT_MS);
 
   try {
+    // Disconnect from database
+    const dbService = DatabaseService.getInstance();
+    console.log(`[${new Date().toISOString()}] Disconnecting from database...`);
+    await dbService.disconnect();
+    console.log(`[${new Date().toISOString()}] Database disconnected successfully`);
+
     // Close server and stop accepting new connections
     await new Promise<void>((resolve, reject) => {
       if (!serverState.server) {
@@ -136,9 +143,15 @@ function registerShutdownHandlers(): void {
 /**
  * Starts the Express server
  */
-function startServer(): void {
+async function startServer(): Promise<void> {
   try {
     const { port, nodeEnv } = environment;
+
+    // Initialize database connection
+    const dbService = DatabaseService.getInstance();
+    console.log(`[${new Date().toISOString()}] Initializing database connection...`);
+    await dbService.connect();
+    console.log(`[${new Date().toISOString()}] Database connection established successfully`);
 
     // Start listening on configured port
     const server = app.listen(port, () => {
@@ -203,4 +216,4 @@ function startServer(): void {
  * Server initialization
  * Entry point for the application
  */
-startServer();
+void startServer();

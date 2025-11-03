@@ -1,0 +1,292 @@
+// =============================================================================
+// PRISMA SCHEMA - HOTEL CHECK-IN APPLICATION
+// =============================================================================
+// This schema defines the core data models for hotel management including
+// users, rooms, and reservations with proper relationships and constraints.
+// 
+// Database: PostgreSQL
+// ORM: Prisma 5.7.1
+// Connection Pooling: Configured via DATABASE_URL
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+  // Enable preview features for better performance
+  previewFeatures = ["fullTextSearch", "fullTextIndex"]
+  // Binary targets for deployment flexibility
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // Connection pool configuration for production
+  // Format: postgresql://user:password@host:port/database?schema=public&connection_limit=10&pool_timeout=30
+}
+
+// =============================================================================
+// ENUMS - Type-safe enumeration definitions
+// =============================================================================
+
+/// User role enumeration for role-based access control
+/// ADMIN: Full system access, can manage all resources
+/// GUEST: Limited access, can only manage own reservations
+enum UserRole {
+  ADMIN
+  GUEST
+}
+
+/// Room availability status enumeration
+/// AVAILABLE: Room is ready for booking
+/// OCCUPIED: Room is currently occupied by a guest
+/// MAINTENANCE: Room is under maintenance and unavailable
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+}
+
+/// Reservation lifecycle status enumeration
+/// PENDING: Reservation created but not confirmed
+/// CONFIRMED: Reservation confirmed by admin or payment
+/// CHECKED_IN: Guest has checked in
+/// CHECKED_OUT: Guest has checked out
+/// CANCELLED: Reservation cancelled by guest or admin
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+}
+
+// =============================================================================
+// USER MODEL - Authentication and authorization
+// =============================================================================
+
+/// User model for authentication and authorization
+/// Supports both admin users and guest users with role-based access
+model User {
+  /// Primary key: UUID for distributed system compatibility
+  id        String   @id @default(uuid()) @db.Uuid
+  
+  /// Unique email address for authentication
+  /// Indexed for fast lookup during login
+  email     String   @unique @db.VarChar(255)
+  
+  /// Hashed password using bcrypt
+  /// Never store plain text passwords
+  /// Minimum 60 characters for bcrypt hash
+  password  String   @db.VarChar(255)
+  
+  /// User role for access control
+  /// Defaults to GUEST for new registrations
+  role      UserRole @default(GUEST)
+  
+  /// Audit timestamp: Record creation time
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  
+  /// Audit timestamp: Last update time
+  /// Automatically updated by Prisma
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  
+  /// One-to-many relationship: User can have multiple reservations
+  /// Cascade delete: Remove all reservations when user is deleted
+  reservations Reservation[]
+  
+  /// Composite index for common query patterns
+  /// Optimizes queries filtering by role and creation date
+  @@index([role, createdAt])
+  
+  /// Partial index for active users (no soft delete in this schema)
+  /// Email lookup index for authentication
+  @@index([email])
+  
+  /// Table name in database
+  @@map("users")
+}
+
+// =============================================================================
+// ROOM MODEL - Hotel room inventory
+// =============================================================================
+
+/// Room model representing hotel room inventory
+/// Tracks room details, pricing, and availability status
+model Room {
+  /// Primary key: UUID for distributed system compatibility
+  id         String     @id @default(uuid()) @db.Uuid
+  
+  /// Unique room number for physical identification
+  /// Indexed for fast lookup during check-in
+  roomNumber String     @unique @db.VarChar(50)
+  
+  /// Room type/category (e.g., "Standard", "Deluxe", "Suite")
+  /// Used for filtering and categorization
+  type       String     @db.VarChar(100)
+  
+  /// Room price per night in decimal format
+  /// Precision: 10 digits total, 2 decimal places
+  /// Supports prices up to 99,999,999.99
+  price      Decimal    @db.Decimal(10, 2)
+  
+  /// Current room status for availability management
+  /// Defaults to AVAILABLE for new rooms
+  status     RoomStatus @default(AVAILABLE)
+  
+  /// Audit timestamp: Record creation time
+  createdAt  DateTime   @default(now()) @db.Timestamptz(3)
+  
+  /// Audit timestamp: Last update time
+  /// Automatically updated by Prisma
+  updatedAt  DateTime   @updatedAt @db.Timestamptz(3)
+  
+  /// One-to-many relationship: Room can have multiple reservations
+  /// Cascade delete: Remove all reservations when room is deleted
+  reservations Reservation[]
+  
+  /// Composite index for room search queries
+  /// Optimizes filtering by type and status
+  @@index([type, status])
+  
+  /// Index for status-based queries (available rooms)
+  @@index([status])
+  
+  /// Index for room number lookup
+  @@index([roomNumber])
+  
+  /// Table name in database
+  @@map("rooms")
+}
+
+// =============================================================================
+// RESERVATION MODEL - Booking management
+// =============================================================================
+
+/// Reservation model for managing room bookings
+/// Links users to rooms with date ranges and status tracking
+model Reservation {
+  /// Primary key: UUID for distributed system compatibility
+  id           String            @id @default(uuid()) @db.Uuid
+  
+  /// Foreign key: Reference to user making the reservation
+  /// Required field, cannot be null
+  userId       String            @db.Uuid
+  
+  /// Foreign key: Reference to room being reserved
+  /// Required field, cannot be null
+  roomId       String            @db.Uuid
+  
+  /// Check-in date for the reservation
+  /// Stored as date only (no time component)
+  checkInDate  DateTime          @db.Date
+  
+  /// Check-out date for the reservation
+  /// Stored as date only (no time component)
+  /// Must be after check-in date (enforced at application level)
+  checkOutDate DateTime          @db.Date
+  
+  /// Current reservation status for lifecycle management
+  /// Defaults to PENDING for new reservations
+  status       ReservationStatus @default(PENDING)
+  
+  /// Audit timestamp: Record creation time
+  createdAt    DateTime          @default(now()) @db.Timestamptz(3)
+  
+  /// Audit timestamp: Last update time
+  /// Automatically updated by Prisma
+  updatedAt    DateTime          @updatedAt @db.Timestamptz(3)
+  
+  /// Many-to-one relationship: Reservation belongs to one user
+  /// onDelete: Cascade - Delete reservation when user is deleted
+  /// onUpdate: Cascade - Update foreign key when user id changes
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  
+  /// Many-to-one relationship: Reservation belongs to one room
+  /// onDelete: Cascade - Delete reservation when room is deleted
+  /// onUpdate: Cascade - Update foreign key when room id changes
+  room         Room              @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  
+  /// Foreign key index for user relationship
+  /// Optimizes queries for user's reservations
+  @@index([userId])
+  
+  /// Foreign key index for room relationship
+  /// Optimizes queries for room's reservations
+  @@index([roomId])
+  
+  /// Composite index for date range queries
+  /// Optimizes availability checks and date-based filtering
+  @@index([checkInDate, checkOutDate])
+  
+  /// Composite index for status-based queries
+  /// Optimizes filtering reservations by status and dates
+  @@index([status, checkInDate])
+  
+  /// Composite index for room availability queries
+  /// Optimizes checking room availability for date ranges
+  @@index([roomId, checkInDate, checkOutDate])
+  
+  /// Table name in database
+  @@map("reservations")
+}
+
+// =============================================================================
+// SCHEMA NOTES AND BEST PRACTICES
+// =============================================================================
+//
+// 1. UUID PRIMARY KEYS:
+//    - Using UUIDs instead of auto-increment integers for distributed systems
+//    - Prevents ID collision in multi-instance deployments
+//    - Enables offline-first capabilities
+//
+// 2. TIMESTAMP PRECISION:
+//    - Using Timestamptz(3) for millisecond precision with timezone
+//    - Ensures consistent time handling across different timezones
+//    - Critical for audit trails and time-based queries
+//
+// 3. CASCADE DELETES:
+//    - Configured on all foreign key relationships
+//    - Maintains referential integrity automatically
+//    - Prevents orphaned records in child tables
+//
+// 4. INDEXING STRATEGY:
+//    - Foreign keys indexed for join performance
+//    - Composite indexes for common query patterns
+//    - Unique indexes for business constraints
+//
+// 5. DECIMAL FOR MONEY:
+//    - Using Decimal(10,2) instead of Float for price
+//    - Prevents floating-point precision errors
+//    - Critical for financial calculations
+//
+// 6. ENUM TYPES:
+//    - Type-safe status and role management
+//    - Prevents invalid values at database level
+//    - Self-documenting code
+//
+// 7. AUDIT FIELDS:
+//    - createdAt and updatedAt on all models
+//    - Automatic timestamp management by Prisma
+//    - Essential for debugging and compliance
+//
+// 8. VALIDATION:
+//    - Database-level constraints via Prisma schema
+//    - Application-level validation required for:
+//      * Email format validation
+//      * Password strength requirements
+//      * Date range validation (checkOut > checkIn)
+//      * Price positive value validation
+//
+// 9. MIGRATION STRATEGY:
+//    - Use `npx prisma migrate dev` for development
+//    - Use `npx prisma migrate deploy` for production
+//    - Always review generated SQL before applying
+//    - Test migrations on production copy first
+//
+// 10. CONNECTION POOLING:
+//     - Configure via DATABASE_URL query parameters
+//     - Recommended: connection_limit=10 for small apps
+//     - Adjust based on concurrent user load
+//     - Monitor connection pool metrics in production
+//
+// =============================================================================
