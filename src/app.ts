@@ -2,6 +2,7 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import { healthRouter } from './routes/health.routes.js';
 import { authRouter } from './routes/auth.routes.js';
 import { roomRouter } from './routes/room.routes.js';
+import { reservationRouter } from './routes/reservation.routes.js';
 
 /**
  * Health check response interface
@@ -96,6 +97,9 @@ function createApp(): Express {
 
   // Register room routes
   app.use('/api/rooms', roomRouter);
+
+  // Register reservation routes
+  app.use('/api/reservations', reservationRouter);
 
   // 404 handler for undefined routes
   app.use((req: Request, _res: Response, next: NextFunction): void => {
