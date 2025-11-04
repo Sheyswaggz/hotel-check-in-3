@@ -18,7 +18,12 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "ts-node-dev --esm prisma/seed.ts"
+    "prisma:seed": "ts-node-dev --esm prisma/seed.ts",
+    "docker:build": "docker build -t hotel-checkin .",
+    "docker:run": "docker run -p 3000:3000 hotel-checkin",
+    "docker:compose:up": "docker-compose up",
+    "docker:compose:down": "docker-compose down",
+    "docker:compose:logs": "docker-compose logs -f"
   },
   "keywords": [
     "hotel",
