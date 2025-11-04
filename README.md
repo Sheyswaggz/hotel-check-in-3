@@ -9,6 +9,7 @@ A production-grade hotel check-in application built with TypeScript, Express.js,
 - [Installation](#installation)
 - [Environment Setup](#environment-setup)
 - [Database Setup](#database-setup)
+- [Docker Setup](#docker-setup)
 - [Authentication](#authentication)
 - [Available Scripts](#available-scripts)
 - [Project Structure](#project-structure)
@@ -45,25 +46,21 @@ Before you begin, ensure you have the following installed on your system:
 - **PostgreSQL**: Version 14.0 or higher
   - Check your version: `psql --version`
   - Download from: [https://www.postgresql.org/download/](https://www.postgresql.org/download/)
+- **Docker**: For containerized deployment (optional)
+  - Check your version: `docker --version`
+  - Download from: [https://www.docker.com/get-started](https://www.docker.com/get-started)
+- **Docker Compose**: For orchestrating multi-container applications (optional)
+  - Check your version: `docker-compose --version`
+  - Comes bundled with Docker Desktop
 
 ## Installation
 
 1. **Clone the repository** (or navigate to your project directory):
 
-## Authentication
+## Docker Setup
 
-The application uses JWT (JSON Web Token) based authentication to secure API endpoints and manage user sessions. The authentication system supports role-based access control with two user roles: **ADMIN** and **GUEST**.
+The application can be run using Docker for consistent development and production environments. Docker containerization provides isolated, reproducible environments across different systems.
 
-### Authentication Flow
+### Quick Start with Docker
 
-1. **User Registration**: New users register with email, password, and role
-2. **Password Hashing**: Passwords are securely hashed using bcrypt before storage
-3. **Token Generation**: Upon successful login, a JWT token is generated with 24-hour expiration
-4. **Token Validation**: Protected routes validate the JWT token from the Authorization header
-5. **Role-Based Access**: Endpoints enforce role-based permissions (see [Authorization Matrix](docs/authorization-matrix.md))
-
-### API Endpoints
-
-#### Register New User
-
-Create a new user account with email, password, and role.
+To start the application with all dependencies using Docker Compose:
