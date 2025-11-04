@@ -11,6 +11,7 @@ A production-grade hotel check-in application built with TypeScript, Express.js,
 - [Database Setup](#database-setup)
 - [Docker Setup](#docker-setup)
 - [Authentication](#authentication)
+- [Room Management](#room-management)
 - [Available Scripts](#available-scripts)
 - [Project Structure](#project-structure)
 - [Development Guidelines](#development-guidelines)
@@ -64,3 +65,19 @@ The application can be run using Docker for consistent development and productio
 ### Quick Start with Docker
 
 To start the application with all dependencies using Docker Compose:
+
+## Room Management
+
+The application provides comprehensive room management capabilities through RESTful API endpoints. Hotel administrators can manage room inventory, set pricing, and control room availability.
+
+### Room Management Features
+
+- **Room Listing**: Browse available rooms with filtering and pagination
+- **Room Details**: View detailed information about specific rooms
+- **Room Creation**: Add new rooms to the inventory (admin only)
+- **Room Updates**: Modify room details, pricing, and availability (admin only)
+- **Room Deletion**: Remove rooms from the system (admin only)
+
+### Common Room Operations
+
+#### List All Rooms
