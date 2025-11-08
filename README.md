@@ -13,6 +13,7 @@ A production-grade hotel check-in application built with TypeScript, Express.js,
 - [Authentication](#authentication)
 - [Room Management](#room-management)
 - [Reservation Management](#reservation-management)
+- [Admin Dashboard](#admin-dashboard)
 - [CI/CD Pipeline](#cicd-pipeline)
 - [Available Scripts](#available-scripts)
 - [Project Structure](#project-structure)
@@ -110,66 +111,23 @@ The reservation lifecycle follows a structured workflow:
 
 #### Create a Reservation (Guest)
 
-## CI/CD Pipeline
+## Admin Dashboard
 
-[![CI](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/ci.yml)
-[![Deploy](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/deploy.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/deploy.yml)
+The Admin Dashboard provides comprehensive administrative functionality for hotel management, including real-time statistics, occupancy tracking, reservation monitoring, and user management. All dashboard features are restricted to users with ADMIN role.
 
-The application uses GitHub Actions for continuous integration and deployment, automating testing, security scanning, and deployment processes.
+### Dashboard Features
 
-### Automated Workflows
+- **Real-Time Statistics**: View key metrics including total rooms, occupancy rates, and pending reservations
+- **Recent Reservations**: Monitor the latest booking activity with detailed reservation information
+- **Room Occupancy Overview**: Track current and projected room occupancy with visual analytics
+- **User Management**: Manage user accounts with pagination and filtering capabilities
 
-The CI/CD pipeline consists of two main workflows:
+### Dashboard Endpoints
 
-1. **CI Pipeline** - Runs on all pull requests and pushes to main
-   - Automated testing with Jest
-   - ESLint code quality checks
-   - Security scanning with npm audit
-   - Docker image building and caching
-   - Multi-version Node.js testing (20.x, 22.x)
+All admin dashboard endpoints require authentication with a valid JWT token and ADMIN role.
 
-2. **Deployment Pipeline** - Deploys to development environment
-   - Automatic deployment on main branch pushes
-   - Manual deployment trigger available
-   - Docker image publishing to GitHub Container Registry
-   - Environment-specific configuration
+**Base URL**: `/api/admin`
 
-### Required GitHub Secrets
+#### Get Dashboard Statistics
 
-The following secrets must be configured in your GitHub repository settings:
-
-| Secret Name | Description | Required For |
-|------------|-------------|--------------|
-| `DATABASE_URL` | PostgreSQL connection string | CI, Deployment |
-| `JWT_SECRET` | Secret key for JWT token signing | CI, Deployment |
-| `JWT_EXPIRES_IN` | JWT token expiration time | CI, Deployment |
-
-**To configure secrets:**
-1. Navigate to your repository on GitHub
-2. Go to Settings → Secrets and variables → Actions
-3. Click "New repository secret"
-4. Add each required secret with its value
-
-### Pipeline Features
-
-- **Automated Testing**: All tests run automatically on every pull request
-- **Code Quality**: ESLint enforces code standards and best practices
-- **Security Scanning**: npm audit checks for vulnerable dependencies
-- **Docker Layer Caching**: Optimized build times with intelligent caching
-- **Matrix Testing**: Tests run across multiple Node.js versions
-- **Deployment Automation**: Seamless deployment to development environment
-- **Build Artifacts**: Docker images cached and published to GHCR
-
-### Detailed Documentation
-
-For comprehensive CI/CD documentation, including:
-- Pipeline architecture and workflow details
-- Branch protection rules
-- Manual deployment procedures
-- Troubleshooting guides
-
-See: [CI/CD Pipeline Documentation](docs/deployment/ci-cd.md)
-
-For secrets management best practices:
-
-See: [Secrets Management Guide](docs/deployment/secrets.md)
+Retrieve comprehensive dashboard statistics including room counts, occupancy rates, and reservation metrics.

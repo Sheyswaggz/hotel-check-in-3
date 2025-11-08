@@ -38,3 +38,14 @@ The system supports two user roles:
 | `/api/reservations/:id/check-in` | PUT | Yes | ADMIN | Process guest check-in |
 | `/api/reservations/:id/check-out` | PUT | Yes | ADMIN | Process guest check-out |
 | `/api/reservations/:id/cancel` | PUT | Yes | GUEST (own), ADMIN (all) | Cancel reservation with ownership validation |
+
+### Admin Dashboard Endpoints
+
+| Endpoint | Method | Authentication Required | Authorized Roles | Description |
+|----------|--------|------------------------|------------------|-------------|
+| `/api/admin/dashboard` | GET | Yes | ADMIN | Get comprehensive dashboard statistics including rooms, occupancy, reservations, and revenue |
+| `/api/admin/reservations/recent` | GET | Yes | ADMIN | Get recent reservations with user and room details |
+| `/api/admin/rooms/occupancy` | GET | Yes | ADMIN | Get room occupancy statistics for specified date range |
+| `/api/admin/users` | GET | Yes | ADMIN | Get paginated list of users with reservation counts |
+
+**Note:** GUEST users cannot access any admin endpoints. All admin endpoints require ADMIN role authorization.
