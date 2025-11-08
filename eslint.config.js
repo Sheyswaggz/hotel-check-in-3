@@ -4,23 +4,16 @@ import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...tseslint.configs.recommendedTypeChecked,
   prettier,
   {
     languageOptions: {
       parserOptions: {
-        project: './tsconfig.json',
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {
-      // Console statements - allow console.log for debugging, only warn on others
-      'no-console': ['warn', { allow: ['warn', 'error', 'info', 'log', 'debug'] }],
-      
-      // Prefer template literals but don't enforce strictly
-      'prefer-template': 'warn',
-      
-      // TypeScript specific rules - relaxed for pragmatic CI
       '@typescript-eslint/no-unused-vars': [
         'error',
         {
@@ -29,17 +22,37 @@ export default tseslint.config(
           caughtErrorsIgnorePattern: '^_',
         },
       ],
-      '@typescript-eslint/no-unnecessary-type-assertion': 'warn',
-      '@typescript-eslint/prefer-nullish-coalescing': 'warn',
-      '@typescript-eslint/no-base-to-string': 'warn',
-      '@typescript-eslint/restrict-template-expressions': 'warn',
-      '@typescript-eslint/no-namespace': 'warn',
-      
-      // Code quality
-      'no-unused-vars': 'off', // Use TypeScript version instead
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/explicit-module-boundary-types': 'off',
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unused-expressions': 'off',
+      'prefer-template': 'warn',
     },
   },
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', '*.config.js'],
-  }
+    files: ['**/__tests__/**/*.ts', '**/*.test.ts', '**/*.spec.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
+      'prefer-template': 'off',
+    },
+  },
+  {
+    ignores: [
+      'node_modules/**',
+      'dist/**',
+      'build/**',
+      'coverage/**',
+      '*.config.js',
+      '*.config.ts',
+    ],
+  },
 );
