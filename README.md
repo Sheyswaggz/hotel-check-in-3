@@ -11,6 +11,9 @@ A production-grade hotel check-in application built with TypeScript, Express.js,
 - [Database Setup](#database-setup)
 - [Docker Setup](#docker-setup)
 - [Authentication](#authentication)
+- [Room Management](#room-management)
+- [Reservation Management](#reservation-management)
+- [CI/CD Pipeline](#cicd-pipeline)
 - [Available Scripts](#available-scripts)
 - [Project Structure](#project-structure)
 - [Development Guidelines](#development-guidelines)
@@ -64,3 +67,45 @@ The application can be run using Docker for consistent development and productio
 ### Quick Start with Docker
 
 To start the application with all dependencies using Docker Compose:
+
+## Room Management
+
+The application provides comprehensive room management capabilities through RESTful API endpoints. Hotel administrators can manage room inventory, set pricing, and control room availability.
+
+### Room Management Features
+
+- **Room Listing**: Browse available rooms with filtering and pagination
+- **Room Details**: View detailed information about specific rooms
+- **Room Creation**: Add new rooms to the inventory (admin only)
+- **Room Updates**: Modify room details, pricing, and availability (admin only)
+- **Room Deletion**: Remove rooms from the system (admin only)
+
+### Common Room Operations
+
+#### List All Rooms
+
+## Reservation Management
+
+The reservation management system provides a complete booking workflow from initial reservation through check-out. The system enforces business rules for room availability, validates date ranges, and manages reservation status transitions with role-based access control.
+
+### Reservation Workflow Overview
+
+The reservation lifecycle follows a structured workflow:
+
+1. **Booking**: Guest creates a reservation with automatic room availability validation
+2. **Confirmation**: Admin confirms the reservation (or automatic confirmation via payment)
+3. **Check-In**: Admin processes guest check-in on arrival date
+4. **Check-Out**: Admin processes guest check-out on departure date
+5. **Cancellation**: Guest or admin can cancel reservations (with business rule constraints)
+
+### Reservation Features
+
+- **Availability Checking**: Real-time room availability validation before booking
+- **Status Management**: Automated status transitions with validation (PENDING → CONFIRMED → CHECKED_IN → CHECKED_OUT)
+- **Role-Based Access**: Guests manage their own reservations; admins manage all reservations
+- **Date Validation**: Comprehensive validation for check-in/check-out dates and booking windows
+- **Conflict Prevention**: Prevents double-booking and overlapping reservations
+
+### Common Reservation Operations
+
+#### Create a Reservation (Guest)
