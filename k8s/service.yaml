@@ -1,0 +1,71 @@
+# =============================================================================
+# KUBERNETES SERVICE MANIFEST - HOTEL CHECK-IN APPLICATION
+# =============================================================================
+# Production-ready ClusterIP service for internal cluster communication.
+# Exposes the hotel check-in application on port 80, routing traffic to
+# container port 3000 for room management and reservation APIs.
+#
+# Service Type: ClusterIP (Internal)
+# Target Port: 3000 (Application Container)
+# Service Port: 80 (Standard HTTP)
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: hotel-checkin-svc
+  namespace: production
+  labels:
+    app: hotel-checkin
+    version: v1.0.0
+    component: backend
+    tier: application
+    managed-by: kubernetes
+  annotations:
+    description: "Hotel check-in application internal service for room management and reservations"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3000"
+    prometheus.io/path: "/health"
+    service.kubernetes.io/topology-aware-hints: "auto"
+
+spec:
+  # =============================================================================
+  # SERVICE TYPE - CLUSTERIP FOR INTERNAL COMMUNICATION
+  # =============================================================================
+  type: ClusterIP
+  
+  # =============================================================================
+  # POD SELECTOR - ROUTES TRAFFIC TO MATCHING PODS
+  # =============================================================================
+  selector:
+    app: hotel-checkin
+    component: backend
+  
+  # =============================================================================
+  # PORT CONFIGURATION
+  # =============================================================================
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  
+  # =============================================================================
+  # SESSION AFFINITY - STICKY SESSIONS FOR STATEFUL OPERATIONS
+  # =============================================================================
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+  
+  # =============================================================================
+  # IP FAMILY CONFIGURATION
+  # =============================================================================
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  
+  # =============================================================================
+  # INTERNAL TRAFFIC POLICY
+  # =============================================================================
+  internalTrafficPolicy: Cluster
