@@ -1,0 +1,353 @@
+# =============================================================================
+# KUBERNETES DEPLOYMENT MANIFEST - HOTEL CHECK-IN APPLICATION
+# =============================================================================
+# Production-ready deployment with security hardening, resource optimization,
+# high availability, comprehensive health checks, and zero-downtime updates.
+#
+# Application: Hotel Check-in API
+# Container Port: 3000
+# Replicas: 3 (High Availability)
+# Update Strategy: RollingUpdate (Zero Downtime)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hotel-checkin-app
+  namespace: production
+  labels:
+    app: hotel-checkin
+    version: v1.0.0
+    component: backend
+    tier: application
+    managed-by: kubernetes
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+    description: "Hotel check-in application backend deployment with room management and reservation APIs"
+    kubernetes.io/change-cause: "Initial deployment of hotel check-in application"
+
+spec:
+  # =============================================================================
+  # REPLICA AND REVISION CONFIGURATION
+  # =============================================================================
+  replicas: 3
+  revisionHistoryLimit: 10
+  
+  # =============================================================================
+  # DEPLOYMENT STRATEGY - ZERO DOWNTIME ROLLING UPDATE
+  # =============================================================================
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  
+  # =============================================================================
+  # POD SELECTOR
+  # =============================================================================
+  selector:
+    matchLabels:
+      app: hotel-checkin
+      component: backend
+  
+  # =============================================================================
+  # POD TEMPLATE SPECIFICATION
+  # =============================================================================
+  template:
+    metadata:
+      labels:
+        app: hotel-checkin
+        version: v1.0.0
+        component: backend
+        tier: application
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/health"
+        kubectl.kubernetes.io/default-container: "hotel-checkin"
+    
+    spec:
+      # =============================================================================
+      # SECURITY CONTEXT - POD LEVEL
+      # =============================================================================
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+        supplementalGroups: [1001]
+      
+      # =============================================================================
+      # SERVICE ACCOUNT
+      # =============================================================================
+      serviceAccountName: hotel-checkin-sa
+      automountServiceAccountToken: true
+      
+      # =============================================================================
+      # DNS CONFIGURATION
+      # =============================================================================
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
+      
+      # =============================================================================
+      # SCHEDULING AND AFFINITY
+      # =============================================================================
+      priorityClassName: high-priority
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - hotel-checkin
+                topologyKey: kubernetes.io/hostname
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - hotel-checkin
+                topologyKey: topology.kubernetes.io/zone
+      
+      # =============================================================================
+      # INIT CONTAINERS
+      # =============================================================================
+      initContainers:
+        - name: wait-for-database
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for PostgreSQL database to be ready..."
+              until nc -z postgres-svc 5432; do
+                echo "Database not ready, waiting..."
+                sleep 2
+              done
+              echo "Database is ready!"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            capabilities:
+              drop:
+                - ALL
+        
+        - name: database-migration
+          image: hotel-checkin:v1.0.0
+          command: ['npx', 'prisma', 'migrate', 'deploy']
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hotel-checkin-secrets
+                  key: database-url
+            - name: NODE_ENV
+              value: "production"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      
+      # =============================================================================
+      # APPLICATION CONTAINER
+      # =============================================================================
+      containers:
+        - name: hotel-checkin
+          image: hotel-checkin:v1.0.0
+          imagePullPolicy: IfNotPresent
+          
+          # =============================================================================
+          # SECURITY CONTEXT - CONTAINER LEVEL
+          # =============================================================================
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+          
+          # =============================================================================
+          # CONTAINER PORTS
+          # =============================================================================
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          
+          # =============================================================================
+          # ENVIRONMENT VARIABLES FROM CONFIGMAP
+          # =============================================================================
+          envFrom:
+            - configMapRef:
+                name: hotel-checkin-config
+          
+          # =============================================================================
+          # ENVIRONMENT VARIABLES FROM SECRETS AND FIELD REFS
+          # =============================================================================
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hotel-checkin-secrets
+                  key: database-url
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hotel-checkin-secrets
+                  key: jwt-secret
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          
+          # =============================================================================
+          # RESOURCE LIMITS AND REQUESTS
+          # =============================================================================
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+              ephemeral-storage: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+              ephemeral-storage: 2Gi
+          
+          # =============================================================================
+          # LIVENESS PROBE - RESTART IF UNHEALTHY
+          # =============================================================================
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              httpHeaders:
+                - name: X-Probe-Type
+                  value: liveness
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          
+          # =============================================================================
+          # READINESS PROBE - REMOVE FROM SERVICE IF NOT READY
+          # =============================================================================
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+              httpHeaders:
+                - name: X-Probe-Type
+                  value: readiness
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+          
+          # =============================================================================
+          # STARTUP PROBE - ALLOW SLOW STARTUP
+          # =============================================================================
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+              httpHeaders:
+                - name: X-Probe-Type
+                  value: startup
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 30
+          
+          # =============================================================================
+          # VOLUME MOUNTS
+          # =============================================================================
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/.cache
+            - name: logs
+              mountPath: /app/logs
+            - name: prisma-cache
+              mountPath: /app/node_modules/.prisma
+          
+          # =============================================================================
+          # LIFECYCLE HOOKS
+          # =============================================================================
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - sleep 15
+      
+      # =============================================================================
+      # VOLUMES
+      # =============================================================================
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 500Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: logs
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: prisma-cache
+          emptyDir:
+            sizeLimit: 500Mi
+      
+      # =============================================================================
+      # TERMINATION GRACE PERIOD
+      # =============================================================================
+      terminationGracePeriodSeconds: 30
+      
+      # =============================================================================
+      # IMAGE PULL SECRETS
+      # =============================================================================
+      imagePullSecrets:
+        - name: docker-registry-secret
