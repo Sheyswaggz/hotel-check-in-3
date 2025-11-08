@@ -3,6 +3,7 @@ import { healthRouter } from './routes/health.routes.js';
 import { authRouter } from './routes/auth.routes.js';
 import { roomRouter } from './routes/room.routes.js';
 import { reservationRouter } from './routes/reservation.routes.js';
+import { adminRouter } from './routes/admin.routes.js';
 
 /**
  * Health check response interface
@@ -100,6 +101,9 @@ function createApp(): Express {
 
   // Register reservation routes
   app.use('/api/reservations', reservationRouter);
+
+  // Register admin routes
+  app.use('/api/admin', adminRouter);
 
   // 404 handler for undefined routes
   app.use((req: Request, _res: Response, next: NextFunction): void => {
