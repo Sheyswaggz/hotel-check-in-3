@@ -12,6 +12,7 @@ A production-grade hotel check-in application built with TypeScript, Express.js,
 - [Docker Setup](#docker-setup)
 - [Authentication](#authentication)
 - [Room Management](#room-management)
+- [CI/CD Pipeline](#cicd-pipeline)
 - [Available Scripts](#available-scripts)
 - [Project Structure](#project-structure)
 - [Development Guidelines](#development-guidelines)
@@ -81,3 +82,75 @@ The application provides comprehensive room management capabilities through REST
 ### Common Room Operations
 
 #### List All Rooms
+
+## CI/CD Pipeline
+
+[![CI](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/ci.yml)
+[![Deploy](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/deploy.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/deploy.yml)
+
+The application uses GitHub Actions for continuous integration and deployment. The CI/CD pipeline automates testing, linting, security scanning, Docker image building, and deployment to development environments.
+
+### Automated Workflows
+
+#### Continuous Integration (CI)
+
+The CI workflow runs automatically on every pull request and push to the main branch:
+
+- **Linting**: ESLint checks for code quality and style consistency
+- **Type Checking**: TypeScript compiler validates type safety
+- **Unit Tests**: Jest runs all unit and integration tests
+- **Security Scanning**: npm audit checks for vulnerable dependencies
+- **Docker Build**: Validates Docker image builds successfully
+- **Build Artifacts**: Compiles TypeScript to JavaScript and caches for deployment
+
+#### Deployment
+
+The deployment workflow automatically deploys to the development environment when changes are merged to the main branch:
+
+- **Docker Image**: Builds and pushes images to GitHub Container Registry
+- **Environment Deployment**: Deploys to development environment with proper configuration
+- **Health Checks**: Validates deployment success with automated health checks
+
+### Required GitHub Secrets
+
+The following secrets must be configured in your GitHub repository settings for the CI/CD pipeline to function properly:
+
+| Secret Name | Description | Required For |
+|-------------|-------------|--------------|
+| `DATABASE_URL` | PostgreSQL connection string | CI, Deployment |
+| `JWT_SECRET` | Secret key for JWT token signing | CI, Deployment |
+| `JWT_REFRESH_SECRET` | Secret key for refresh token signing | CI, Deployment |
+| `DEPLOY_HOST` | Deployment server hostname | Deployment |
+| `DEPLOY_USER` | SSH user for deployment | Deployment |
+| `DEPLOY_KEY` | SSH private key for deployment | Deployment |
+
+To configure secrets:
+1. Navigate to your repository on GitHub
+2. Go to Settings → Secrets and variables → Actions
+3. Click "New repository secret"
+4. Add each required secret with its corresponding value
+
+### Performance Optimization
+
+The CI/CD pipeline includes several optimizations for faster builds:
+
+- **Dependency Caching**: npm dependencies are cached between workflow runs
+- **Docker Layer Caching**: Docker build layers are cached to speed up image builds
+- **Parallel Jobs**: Tests and linting run in parallel when possible
+- **Incremental Builds**: Only changed files trigger relevant workflow steps
+
+### Documentation
+
+For detailed information about the CI/CD pipeline, including workflow configuration, deployment strategies, and troubleshooting:
+
+- [CI/CD Pipeline Documentation](docs/deployment/ci-cd.md) - Comprehensive guide to workflows and deployment
+- [Secrets Management](docs/deployment/secrets.md) - Detailed secrets configuration and security best practices
+
+### Monitoring Build Status
+
+You can monitor the status of CI/CD workflows:
+
+- View workflow runs in the **Actions** tab of your GitHub repository
+- Check build status badges at the top of this README
+- Receive notifications for failed builds via GitHub notifications
+- Review detailed logs for each workflow step
