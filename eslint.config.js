@@ -1,11 +1,12 @@
-import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
-import prettier from 'eslint-config-prettier';
+import prettierConfig from 'eslint-config-prettier';
 
-export default [
-  js.configs.recommended,
+export default tseslint.config(
+  {
+    ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'prisma/**', '*.config.js'],
+  },
   ...tseslint.configs.recommendedTypeChecked,
-  prettier,
+  prettierConfig,
   {
     languageOptions: {
       parserOptions: {
@@ -14,6 +15,7 @@ export default [
       },
     },
     rules: {
+      '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': [
         'error',
         {
@@ -21,27 +23,17 @@ export default [
           varsIgnorePattern: '^_',
         },
       ],
-      '@typescript-eslint/explicit-function-return-type': 'off',
-      '@typescript-eslint/no-explicit-any': 'warn',
     },
   },
   {
-    ignores: [
-      'node_modules/**',
-      'dist/**',
-      'coverage/**',
-      '.jest-cache/**',
-      'prisma/**',
-    ],
-  },
-  {
-    files: ['**/__tests__/**/*.ts', '**/*.test.ts', '**/*.spec.ts'],
+    files: ['**/*.test.ts', '**/*.spec.ts'],
     rules: {
-      '@typescript-eslint/no-unsafe-member-access': 'off',
-      '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      '@typescript-eslint/unbound-method': 'off',
     },
-  },
-];
+  }
+);
