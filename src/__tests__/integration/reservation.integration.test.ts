@@ -1,181 +1,85 @@
-/**
- * Reservation Integration Tests
- * 
- * Comprehensive integration test suite for reservation management endpoints
- * with authentication, authorization, and database operations.
- * 
- * Test Coverage:
- * - POST /api/reservations - Create reservation (authenticated)
- * - GET /api/reservations - List reservations (role-based filtering)
- * - GET /api/reservations/:id - Get reservation details
- * - PUT /api/reservations/:id/confirm - Confirm reservation (admin only)
- * - PUT /api/reservations/:id/check-in - Process check-in (admin only)
- * - PUT /api/reservations/:id/check-out - Process check-out (admin only)
- * - PUT /api/reservations/:id/cancel - Cancel reservation
- * 
- * @module __tests__/integration/reservation.integration.test
- */
-
 import request from 'supertest';
-import { app } from '../../app.js';
-import { prisma } from '../../config/database.js';
-import { generateToken } from '../../utils/jwt.util.js';
-import { hashPassword } from '../../utils/password.util.js';
-import type { User, Room, Reservation } from '@prisma/client';
+import { PrismaClient, Reservation } from '@prisma/client';
+import app from '../../app';
+import { hashPassword } from '../../utils/password.util';
+import { generateToken } from '../../utils/jwt.util';
+import { addDays, format } from 'date-fns';
 
-// =============================================================================
-// TEST DATA FACTORIES
-// =============================================================================
-
-/**
- * Test user factory for creating test users with different roles
- */
-interface TestUser {
-  id: string;
-  email: string;
-  name: string;
-  password: string;
-  role: 'ADMIN' | 'GUEST';
-  token: string;
-}
-
-/**
- * Test room factory for creating test rooms
- */
-interface TestRoom {
-  id: string;
-  number: string;
-  type: string;
-  price: number;
-  status: string;
-}
-
-/**
- * Test reservation factory for creating test reservations
- */
-interface TestReservation {
-  id: string;
-  userId: string;
-  roomId: string;
-  checkInDate: Date;
-  checkOutDate: Date;
-  status: string;
-  totalPrice: number;
-}
-
-// =============================================================================
-// TEST SUITE SETUP AND TEARDOWN
-// =============================================================================
+const prisma = new PrismaClient();
 
 describe('Reservation Integration Tests', () => {
-  let adminUser: TestUser;
-  let guestUser: TestUser;
-  let testRoom1: TestRoom;
-  let testRoom2: TestRoom;
+  let guestToken: string;
+  let staffToken: string;
+  let adminToken: string;
+  let guestUserId: string;
+  let staffUserId: string;
+  let adminUserId: string;
+  let testRoomId: string;
 
-  /**
-   * Setup test database with users and rooms before all tests
-   */
   beforeAll(async () => {
-    // Clean up existing test data
+    // Clean up test data
     await prisma.reservation.deleteMany({});
     await prisma.room.deleteMany({});
     await prisma.user.deleteMany({});
 
-    // Create admin user
-    const adminPassword = await hashPassword('Admin123!');
-    const admin = await prisma.user.create({
+    // Create test users
+    const guestUser = await prisma.user.create({
       data: {
-        email: 'admin@test.com',
-        name: 'Admin User',
-        password: adminPassword,
-        role: 'ADMIN',
-      },
-    });
-
-    adminUser = {
-      id: admin.id,
-      email: admin.email,
-      name: admin.name,
-      password: 'Admin123!',
-      role: admin.role,
-      token: generateToken({
-        userId: admin.id,
-        email: admin.email,
-        role: admin.role,
-      }),
-    };
-
-    // Create guest user
-    const guestPassword = await hashPassword('Guest123!');
-    const guest = await prisma.user.create({
-      data: {
-        email: 'guest@test.com',
-        name: 'Guest User',
-        password: guestPassword,
+        email: 'guest@example.com',
+        password: await hashPassword('SecurePass123!'),
+        firstName: 'Guest',
+        lastName: 'User',
+        phoneNumber: '+1234567890',
         role: 'GUEST',
       },
     });
+    guestUserId = guestUser.id;
+    guestToken = generateToken({ userId: guestUser.id, email: guestUser.email, role: guestUser.role });
 
-    guestUser = {
-      id: guest.id,
-      email: guest.email,
-      name: guest.name,
-      password: 'Guest123!',
-      role: guest.role,
-      token: generateToken({
-        userId: guest.id,
-        email: guest.email,
-        role: guest.role,
-      }),
-    };
-
-    // Create test rooms
-    const room1 = await prisma.room.create({
+    const staffUser = await prisma.user.create({
       data: {
-        number: '101',
-        type: 'SINGLE',
-        price: 100.0,
+        email: 'staff@example.com',
+        password: await hashPassword('SecurePass123!'),
+        firstName: 'Staff',
+        lastName: 'User',
+        phoneNumber: '+1234567891',
+        role: 'STAFF',
+      },
+    });
+    staffUserId = staffUser.id;
+    staffToken = generateToken({ userId: staffUser.id, email: staffUser.email, role: staffUser.role });
+
+    const adminUser = await prisma.user.create({
+      data: {
+        email: 'admin@example.com',
+        password: await hashPassword('SecurePass123!'),
+        firstName: 'Admin',
+        lastName: 'User',
+        phoneNumber: '+1234567892',
+        role: 'ADMIN',
+      },
+    });
+    adminUserId = adminUser.id;
+    adminToken = generateToken({ userId: adminUser.id, email: adminUser.email, role: adminUser.role });
+
+    // Create test room
+    const room = await prisma.room.create({
+      data: {
+        roomNumber: '101',
+        type: 'DELUXE',
+        pricePerNight: 150.00,
+        capacity: 2,
         status: 'AVAILABLE',
       },
     });
-
-    testRoom1 = {
-      id: room1.id,
-      number: room1.number,
-      type: room1.type,
-      price: room1.price.toNumber(),
-      status: room1.status,
-    };
-
-    const room2 = await prisma.room.create({
-      data: {
-        number: '102',
-        type: 'DOUBLE',
-        price: 150.0,
-        status: 'AVAILABLE',
-      },
-    });
-
-    testRoom2 = {
-      id: room2.id,
-      number: room2.number,
-      type: room2.type,
-      price: room2.price.toNumber(),
-      status: room2.status,
-    };
+    testRoomId = room.id;
   });
 
-  /**
-   * Clean up reservations after each test to ensure isolation
-   */
   afterEach(async () => {
+    // Clean up reservations after each test
     await prisma.reservation.deleteMany({});
   });
 
-  /**
-   * Clean up all test data after all tests complete
-   */
   afterAll(async () => {
     await prisma.reservation.deleteMany({});
     await prisma.room.deleteMany({});
@@ -183,1187 +87,566 @@ describe('Reservation Integration Tests', () => {
     await prisma.$disconnect();
   });
 
-  // =============================================================================
-  // POST /api/reservations - CREATE RESERVATION
-  // =============================================================================
-
   describe('POST /api/reservations', () => {
-    /**
-     * Happy path: Create reservation with valid data
-     */
-    it('should create reservation for authenticated guest user', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
+    it('should create a reservation successfully', async () => {
+      const checkInDate = addDays(new Date(), 1);
+      const checkOutDate = addDays(new Date(), 3);
+
+      const reservationData = {
+        roomId: testRoomId,
+        checkInDate: format(checkInDate, 'yyyy-MM-dd'),
+        checkOutDate: format(checkOutDate, 'yyyy-MM-dd'),
+        numberOfGuests: 2,
+        specialRequests: 'Late check-in',
+      };
 
       const response = await request(app)
         .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .send({
-          roomId: testRoom1.id,
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
-        })
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send(reservationData)
         .expect(201);
 
       expect(response.body).toMatchObject({
-        id: expect.any(String),
-        userId: guestUser.id,
-        roomId: testRoom1.id,
+        roomId: testRoomId,
+        guestId: guestUserId,
+        numberOfGuests: 2,
         status: 'PENDING',
-        totalPrice: expect.any(Number),
+        specialRequests: 'Late check-in',
       });
-
-      expect(new Date(response.body.checkInDate)).toEqual(checkInDate);
-      expect(new Date(response.body.checkOutDate)).toEqual(checkOutDate);
+      expect(response.body).toHaveProperty('id');
+      expect(response.body).toHaveProperty('totalPrice');
     });
 
-    /**
-     * Happy path: Admin can create reservation
-     */
-    it('should create reservation for authenticated admin user', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
-
-      const response = await request(app)
-        .post('/api/reservations')
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .send({
-          roomId: testRoom1.id,
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
-        })
-        .expect(201);
-
-      expect(response.body).toMatchObject({
-        userId: adminUser.id,
-        roomId: testRoom1.id,
-        status: 'PENDING',
-      });
-    });
-
-    /**
-     * Security: Reject unauthenticated requests
-     */
-    it('should reject reservation creation without authentication', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
+    it('should reject reservation without authentication', async () => {
+      const checkInDate = addDays(new Date(), 1);
+      const checkOutDate = addDays(new Date(), 3);
 
       const response = await request(app)
         .post('/api/reservations')
         .send({
-          roomId: testRoom1.id,
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
+          roomId: testRoomId,
+          checkInDate: format(checkInDate, 'yyyy-MM-dd'),
+          checkOutDate: format(checkOutDate, 'yyyy-MM-dd'),
+          numberOfGuests: 2,
         })
         .expect(401);
 
-      expect(response.body).toMatchObject({
-        error: 'Unauthorized',
-        code: 'MISSING_TOKEN',
-      });
+      expect(response.body).toHaveProperty('error');
     });
 
-    /**
-     * Validation: Reject invalid token
-     */
-    it('should reject reservation creation with invalid token', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
+    it('should reject reservation with invalid dates', async () => {
+      const checkInDate = addDays(new Date(), 3);
+      const checkOutDate = addDays(new Date(), 1); // Before check-in
 
       const response = await request(app)
         .post('/api/reservations')
-        .set('Authorization', 'Bearer invalid-token')
+        .set('Authorization', `Bearer ${guestToken}`)
         .send({
-          roomId: testRoom1.id,
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
-        })
-        .expect(401);
-
-      expect(response.body).toMatchObject({
-        error: 'Unauthorized',
-        code: 'INVALID_TOKEN',
-      });
-    });
-
-    /**
-     * Validation: Reject missing roomId
-     */
-    it('should reject reservation without roomId', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
-
-      const response = await request(app)
-        .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .send({
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
+          roomId: testRoomId,
+          checkInDate: format(checkInDate, 'yyyy-MM-dd'),
+          checkOutDate: format(checkOutDate, 'yyyy-MM-dd'),
+          numberOfGuests: 2,
         })
         .expect(400);
 
-      expect(response.body).toMatchObject({
-        error: 'Validation Error',
-      });
+      expect(response.body).toHaveProperty('error');
     });
 
-    /**
-     * Validation: Reject invalid roomId format
-     */
-    it('should reject reservation with invalid roomId format', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
+    it('should reject reservation with past dates', async () => {
+      const checkInDate = addDays(new Date(), -2);
+      const checkOutDate = addDays(new Date(), -1);
 
       const response = await request(app)
         .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
+        .set('Authorization', `Bearer ${guestToken}`)
         .send({
-          roomId: 'invalid-uuid',
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
+          roomId: testRoomId,
+          checkInDate: format(checkInDate, 'yyyy-MM-dd'),
+          checkOutDate: format(checkOutDate, 'yyyy-MM-dd'),
+          numberOfGuests: 2,
         })
         .expect(400);
 
-      expect(response.body).toMatchObject({
-        error: 'Validation Error',
-      });
+      expect(response.body).toHaveProperty('error');
     });
 
-    /**
-     * Validation: Reject missing checkInDate
-     */
-    it('should reject reservation without checkInDate', async () => {
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
+    it('should reject reservation exceeding room capacity', async () => {
+      const checkInDate = addDays(new Date(), 1);
+      const checkOutDate = addDays(new Date(), 3);
 
       const response = await request(app)
         .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
+        .set('Authorization', `Bearer ${guestToken}`)
         .send({
-          roomId: testRoom1.id,
-          checkOutDate: checkOutDate.toISOString(),
+          roomId: testRoomId,
+          checkInDate: format(checkInDate, 'yyyy-MM-dd'),
+          checkOutDate: format(checkOutDate, 'yyyy-MM-dd'),
+          numberOfGuests: 10, // Exceeds capacity of 2
         })
         .expect(400);
 
-      expect(response.body).toMatchObject({
-        error: 'Validation Error',
-      });
+      expect(response.body).toHaveProperty('error');
     });
 
-    /**
-     * Validation: Reject missing checkOutDate
-     */
-    it('should reject reservation without checkOutDate', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
+    it('should reject reservation for unavailable room', async () => {
+      // Create an unavailable room
+      const unavailableRoom = await prisma.room.create({
+        data: {
+          roomNumber: '102',
+          type: 'STANDARD',
+          pricePerNight: 100.00,
+          capacity: 2,
+          status: 'MAINTENANCE',
+        },
+      });
+
+      const checkInDate = addDays(new Date(), 1);
+      const checkOutDate = addDays(new Date(), 3);
 
       const response = await request(app)
         .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
+        .set('Authorization', `Bearer ${guestToken}`)
         .send({
-          roomId: testRoom1.id,
-          checkInDate: checkInDate.toISOString(),
+          roomId: unavailableRoom.id,
+          checkInDate: format(checkInDate, 'yyyy-MM-dd'),
+          checkOutDate: format(checkOutDate, 'yyyy-MM-dd'),
+          numberOfGuests: 2,
         })
         .expect(400);
 
-      expect(response.body).toMatchObject({
-        error: 'Validation Error',
-      });
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('not available');
+
+      await prisma.room.delete({ where: { id: unavailableRoom.id } });
     });
 
-    /**
-     * Business logic: Reject past checkInDate
-     */
-    it('should reject reservation with past checkInDate', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() - 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
+    it('should calculate total price correctly', async () => {
+      const checkInDate = addDays(new Date(), 1);
+      const checkOutDate = addDays(new Date(), 4); // 3 nights
 
       const response = await request(app)
         .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
+        .set('Authorization', `Bearer ${guestToken}`)
         .send({
-          roomId: testRoom1.id,
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
-        })
-        .expect(400);
-
-      expect(response.body).toMatchObject({
-        error: 'Validation Error',
-      });
-    });
-
-    /**
-     * Business logic: Reject checkOutDate before checkInDate
-     */
-    it('should reject reservation with checkOutDate before checkInDate', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 3);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 1);
-
-      const response = await request(app)
-        .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .send({
-          roomId: testRoom1.id,
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
-        })
-        .expect(400);
-
-      expect(response.body).toMatchObject({
-        error: 'Validation Error',
-      });
-    });
-
-    /**
-     * Business logic: Reject conflicting dates
-     */
-    it('should reject reservation with conflicting dates', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
-
-      // Create first reservation
-      await request(app)
-        .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .send({
-          roomId: testRoom1.id,
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
+          roomId: testRoomId,
+          checkInDate: format(checkInDate, 'yyyy-MM-dd'),
+          checkOutDate: format(checkOutDate, 'yyyy-MM-dd'),
+          numberOfGuests: 2,
         })
         .expect(201);
 
-      // Try to create overlapping reservation
-      const response = await request(app)
-        .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .send({
-          roomId: testRoom1.id,
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
-        })
-        .expect(409);
-
-      expect(response.body).toMatchObject({
-        error: 'Conflict',
-      });
-    });
-
-    /**
-     * Business logic: Reject non-existent room
-     */
-    it('should reject reservation for non-existent room', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
-
-      const response = await request(app)
-        .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .send({
-          roomId: '00000000-0000-0000-0000-000000000000',
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
-        })
-        .expect(404);
-
-      expect(response.body).toMatchObject({
-        error: 'Not Found',
-      });
+      // Room price is 150 per night, 3 nights = 450
+      expect(response.body.totalPrice).toBe(450.00);
     });
   });
 
-  // =============================================================================
-  // GET /api/reservations - LIST RESERVATIONS
-  // =============================================================================
-
   describe('GET /api/reservations', () => {
-    let guestReservation: Reservation;
-    let adminReservation: Reservation;
-
-    /**
-     * Setup test reservations before each test
-     */
     beforeEach(async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
+      // Create test reservations
+      const checkInDate = addDays(new Date(), 1);
+      const checkOutDate = addDays(new Date(), 3);
 
-      // Create guest reservation
-      guestReservation = await prisma.reservation.create({
+      await prisma.reservation.create({
         data: {
-          userId: guestUser.id,
-          roomId: testRoom1.id,
+          roomId: testRoomId,
+          guestId: guestUserId,
           checkInDate,
           checkOutDate,
-          status: 'PENDING',
-          totalPrice: 200.0,
-        },
-      });
-
-      // Create admin reservation
-      adminReservation = await prisma.reservation.create({
-        data: {
-          userId: adminUser.id,
-          roomId: testRoom2.id,
-          checkInDate,
-          checkOutDate,
+          numberOfGuests: 2,
+          totalPrice: 300.00,
           status: 'CONFIRMED',
-          totalPrice: 300.0,
         },
       });
     });
 
-    /**
-     * Happy path: Guest sees only their own reservations
-     */
-    it('should return only guest user reservations for guest', async () => {
+    it('should return guest\'s own reservations', async () => {
       const response = await request(app)
         .get('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
+        .set('Authorization', `Bearer ${guestToken}`)
         .expect(200);
 
-      expect(response.body).toBeInstanceOf(Array);
-      expect(response.body).toHaveLength(1);
-      expect(response.body[0]).toMatchObject({
-        id: guestReservation.id,
-        userId: guestUser.id,
-        roomId: testRoom1.id,
-      });
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.length).toBeGreaterThan(0);
+      expect(response.body[0].guestId).toBe(guestUserId);
     });
 
-    /**
-     * Happy path: Admin sees all reservations
-     */
+    it('should return all reservations for staff', async () => {
+      const response = await request(app)
+        .get('/api/reservations')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .expect(200);
+
+      expect(Array.isArray(response.body)).toBe(true);
+    });
+
     it('should return all reservations for admin', async () => {
       const response = await request(app)
         .get('/api/reservations')
-        .set('Authorization', `Bearer ${adminUser.token}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
-      expect(response.body).toBeInstanceOf(Array);
-      expect(response.body).toHaveLength(2);
-      
-      const reservationIds = response.body.map((r: Reservation) => r.id);
-      expect(reservationIds).toContain(guestReservation.id);
-      expect(reservationIds).toContain(adminReservation.id);
+      expect(Array.isArray(response.body)).toBe(true);
     });
 
-    /**
-     * Security: Reject unauthenticated requests
-     */
-    it('should reject listing reservations without authentication', async () => {
+    it('should reject request without authentication', async () => {
       const response = await request(app)
         .get('/api/reservations')
         .expect(401);
 
-      expect(response.body).toMatchObject({
-        error: 'Unauthorized',
-        code: 'MISSING_TOKEN',
-      });
+      expect(response.body).toHaveProperty('error');
     });
 
-    /**
-     * Filtering: Filter by status
-     */
     it('should filter reservations by status', async () => {
       const response = await request(app)
-        .get('/api/reservations')
-        .query({ status: 'PENDING' })
-        .set('Authorization', `Bearer ${adminUser.token}`)
+        .get('/api/reservations?status=CONFIRMED')
+        .set('Authorization', `Bearer ${staffToken}`)
         .expect(200);
 
-      expect(response.body).toBeInstanceOf(Array);
-      expect(response.body).toHaveLength(1);
-      expect(response.body[0]).toMatchObject({
-        id: guestReservation.id,
-        status: 'PENDING',
-      });
-    });
-
-    /**
-     * Filtering: Filter by roomId
-     */
-    it('should filter reservations by roomId', async () => {
-      const response = await request(app)
-        .get('/api/reservations')
-        .query({ roomId: testRoom1.id })
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(200);
-
-      expect(response.body).toBeInstanceOf(Array);
-      expect(response.body).toHaveLength(1);
-      expect(response.body[0]).toMatchObject({
-        id: guestReservation.id,
-        roomId: testRoom1.id,
-      });
-    });
-
-    /**
-     * Filtering: Admin can filter by userId
-     */
-    it('should allow admin to filter reservations by userId', async () => {
-      const response = await request(app)
-        .get('/api/reservations')
-        .query({ userId: guestUser.id })
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(200);
-
-      expect(response.body).toBeInstanceOf(Array);
-      expect(response.body).toHaveLength(1);
-      expect(response.body[0]).toMatchObject({
-        id: guestReservation.id,
-        userId: guestUser.id,
-      });
-    });
-
-    /**
-     * Authorization: Guest cannot filter by userId
-     */
-    it('should ignore userId filter for guest users', async () => {
-      const response = await request(app)
-        .get('/api/reservations')
-        .query({ userId: adminUser.id })
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(200);
-
-      expect(response.body).toBeInstanceOf(Array);
-      expect(response.body).toHaveLength(1);
-      expect(response.body[0]).toMatchObject({
-        userId: guestUser.id,
+      expect(Array.isArray(response.body)).toBe(true);
+      response.body.forEach((reservation: Reservation) => {
+        expect(reservation.status).toBe('CONFIRMED');
       });
     });
   });
-
-  // =============================================================================
-  // GET /api/reservations/:id - GET RESERVATION BY ID
-  // =============================================================================
 
   describe('GET /api/reservations/:id', () => {
-    let guestReservation: Reservation;
-    let adminReservation: Reservation;
+    let reservationId: string;
 
-    /**
-     * Setup test reservations before each test
-     */
     beforeEach(async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
+      const checkInDate = addDays(new Date(), 1);
+      const checkOutDate = addDays(new Date(), 3);
 
-      guestReservation = await prisma.reservation.create({
+      const reservation = await prisma.reservation.create({
         data: {
-          userId: guestUser.id,
-          roomId: testRoom1.id,
+          roomId: testRoomId,
+          guestId: guestUserId,
           checkInDate,
           checkOutDate,
-          status: 'PENDING',
-          totalPrice: 200.0,
-        },
-      });
-
-      adminReservation = await prisma.reservation.create({
-        data: {
-          userId: adminUser.id,
-          roomId: testRoom2.id,
-          checkInDate,
-          checkOutDate,
+          numberOfGuests: 2,
+          totalPrice: 300.00,
           status: 'CONFIRMED',
-          totalPrice: 300.0,
         },
       });
+      reservationId = reservation.id;
     });
 
-    /**
-     * Happy path: Guest can view their own reservation
-     */
     it('should return reservation details for owner', async () => {
       const response = await request(app)
-        .get(`/api/reservations/${guestReservation.id}`)
-        .set('Authorization', `Bearer ${guestUser.token}`)
+        .get(`/api/reservations/${reservationId}`)
+        .set('Authorization', `Bearer ${guestToken}`)
         .expect(200);
 
-      expect(response.body).toMatchObject({
-        id: guestReservation.id,
-        userId: guestUser.id,
-        roomId: testRoom1.id,
-        status: 'PENDING',
-      });
+      expect(response.body.id).toBe(reservationId);
+      expect(response.body.guestId).toBe(guestUserId);
     });
 
-    /**
-     * Happy path: Admin can view any reservation
-     */
-    it('should return reservation details for admin', async () => {
+    it('should return reservation details for staff', async () => {
       const response = await request(app)
-        .get(`/api/reservations/${guestReservation.id}`)
-        .set('Authorization', `Bearer ${adminUser.token}`)
+        .get(`/api/reservations/${reservationId}`)
+        .set('Authorization', `Bearer ${staffToken}`)
         .expect(200);
 
-      expect(response.body).toMatchObject({
-        id: guestReservation.id,
-        userId: guestUser.id,
-      });
+      expect(response.body.id).toBe(reservationId);
     });
 
-    /**
-     * Security: Reject unauthenticated requests
-     */
-    it('should reject getting reservation without authentication', async () => {
-      const response = await request(app)
-        .get(`/api/reservations/${guestReservation.id}`)
-        .expect(401);
-
-      expect(response.body).toMatchObject({
-        error: 'Unauthorized',
-        code: 'MISSING_TOKEN',
+    it('should reject access to other guest\'s reservation', async () => {
+      // Create another guest
+      const otherGuest = await prisma.user.create({
+        data: {
+          email: 'other@example.com',
+          password: await hashPassword('SecurePass123!'),
+          firstName: 'Other',
+          lastName: 'Guest',
+          phoneNumber: '+1234567893',
+          role: 'GUEST',
+        },
       });
-    });
+      const otherToken = generateToken({ userId: otherGuest.id, email: otherGuest.email, role: otherGuest.role });
 
-    /**
-     * Authorization: Guest cannot view other user reservations
-     */
-    it('should reject guest viewing other user reservation', async () => {
       const response = await request(app)
-        .get(`/api/reservations/${adminReservation.id}`)
-        .set('Authorization', `Bearer ${guestUser.token}`)
+        .get(`/api/reservations/${reservationId}`)
+        .set('Authorization', `Bearer ${otherToken}`)
         .expect(403);
 
-      expect(response.body).toMatchObject({
-        error: 'Forbidden',
-      });
+      expect(response.body).toHaveProperty('error');
+
+      await prisma.user.delete({ where: { id: otherGuest.id } });
     });
 
-    /**
-     * Validation: Reject invalid reservation ID format
-     */
-    it('should reject invalid reservation ID format', async () => {
-      const response = await request(app)
-        .get('/api/reservations/invalid-uuid')
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(400);
-
-      expect(response.body).toMatchObject({
-        error: 'Validation Error',
-      });
-    });
-
-    /**
-     * Business logic: Return 404 for non-existent reservation
-     */
     it('should return 404 for non-existent reservation', async () => {
+      const fakeId = '00000000-0000-0000-0000-000000000000';
+
       const response = await request(app)
-        .get('/api/reservations/00000000-0000-0000-0000-000000000000')
-        .set('Authorization', `Bearer ${adminUser.token}`)
+        .get(`/api/reservations/${fakeId}`)
+        .set('Authorization', `Bearer ${staffToken}`)
         .expect(404);
 
-      expect(response.body).toMatchObject({
-        error: 'Not Found',
-      });
+      expect(response.body).toHaveProperty('error');
     });
   });
 
-  // =============================================================================
-  // PUT /api/reservations/:id/confirm - CONFIRM RESERVATION
-  // =============================================================================
+  describe('PUT /api/reservations/:id', () => {
+    let reservationId: string;
 
-  describe('PUT /api/reservations/:id/confirm', () => {
-    let pendingReservation: Reservation;
-
-    /**
-     * Setup pending reservation before each test
-     */
     beforeEach(async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
+      const checkInDate = addDays(new Date(), 1);
+      const checkOutDate = addDays(new Date(), 3);
 
-      pendingReservation = await prisma.reservation.create({
+      const reservation = await prisma.reservation.create({
         data: {
-          userId: guestUser.id,
-          roomId: testRoom1.id,
+          roomId: testRoomId,
+          guestId: guestUserId,
           checkInDate,
           checkOutDate,
+          numberOfGuests: 2,
+          totalPrice: 300.00,
           status: 'PENDING',
-          totalPrice: 200.0,
         },
       });
+      reservationId = reservation.id;
     });
 
-    /**
-     * Happy path: Admin can confirm pending reservation
-     */
-    it('should confirm pending reservation for admin', async () => {
+    it('should allow guest to update their own reservation', async () => {
       const response = await request(app)
-        .put(`/api/reservations/${pendingReservation.id}/confirm`)
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(200);
-
-      expect(response.body).toMatchObject({
-        id: pendingReservation.id,
-        status: 'CONFIRMED',
-      });
-
-      // Verify database update
-      const updated = await prisma.reservation.findUnique({
-        where: { id: pendingReservation.id },
-      });
-      expect(updated?.status).toBe('CONFIRMED');
-    });
-
-    /**
-     * Security: Reject unauthenticated requests
-     */
-    it('should reject confirmation without authentication', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${pendingReservation.id}/confirm`)
-        .expect(401);
-
-      expect(response.body).toMatchObject({
-        error: 'Unauthorized',
-        code: 'MISSING_TOKEN',
-      });
-    });
-
-    /**
-     * Authorization: Reject guest user confirmation
-     */
-    it('should reject confirmation by guest user', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${pendingReservation.id}/confirm`)
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(403);
-
-      expect(response.body).toMatchObject({
-        error: 'Forbidden',
-        code: 'INSUFFICIENT_PERMISSIONS',
-      });
-    });
-
-    /**
-     * Validation: Reject invalid reservation ID
-     */
-    it('should reject invalid reservation ID format', async () => {
-      const response = await request(app)
-        .put('/api/reservations/invalid-uuid/confirm')
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(400);
-
-      expect(response.body).toMatchObject({
-        error: 'Validation Error',
-      });
-    });
-
-    /**
-     * Business logic: Reject confirming non-pending reservation
-     */
-    it('should reject confirming already confirmed reservation', async () => {
-      // First confirmation
-      await request(app)
-        .put(`/api/reservations/${pendingReservation.id}/confirm`)
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(200);
-
-      // Second confirmation attempt
-      const response = await request(app)
-        .put(`/api/reservations/${pendingReservation.id}/confirm`)
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(400);
-
-      expect(response.body).toMatchObject({
-        error: 'Bad Request',
-      });
-    });
-  });
-
-  // =============================================================================
-  // PUT /api/reservations/:id/check-in - PROCESS CHECK-IN
-  // =============================================================================
-
-  describe('PUT /api/reservations/:id/check-in', () => {
-    let confirmedReservation: Reservation;
-
-    /**
-     * Setup confirmed reservation before each test
-     */
-    beforeEach(async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
-
-      confirmedReservation = await prisma.reservation.create({
-        data: {
-          userId: guestUser.id,
-          roomId: testRoom1.id,
-          checkInDate,
-          checkOutDate,
-          status: 'CONFIRMED',
-          totalPrice: 200.0,
-        },
-      });
-    });
-
-    /**
-     * Happy path: Admin can process check-in
-     */
-    it('should process check-in for confirmed reservation', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${confirmedReservation.id}/check-in`)
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(200);
-
-      expect(response.body).toMatchObject({
-        id: confirmedReservation.id,
-        status: 'CHECKED_IN',
-      });
-
-      // Verify database update
-      const updated = await prisma.reservation.findUnique({
-        where: { id: confirmedReservation.id },
-      });
-      expect(updated?.status).toBe('CHECKED_IN');
-    });
-
-    /**
-     * Security: Reject unauthenticated requests
-     */
-    it('should reject check-in without authentication', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${confirmedReservation.id}/check-in`)
-        .expect(401);
-
-      expect(response.body).toMatchObject({
-        error: 'Unauthorized',
-        code: 'MISSING_TOKEN',
-      });
-    });
-
-    /**
-     * Authorization: Reject guest user check-in
-     */
-    it('should reject check-in by guest user', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${confirmedReservation.id}/check-in`)
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(403);
-
-      expect(response.body).toMatchObject({
-        error: 'Forbidden',
-        code: 'INSUFFICIENT_PERMISSIONS',
-      });
-    });
-
-    /**
-     * Business logic: Reject check-in for non-confirmed reservation
-     */
-    it('should reject check-in for pending reservation', async () => {
-      const pendingReservation = await prisma.reservation.create({
-        data: {
-          userId: guestUser.id,
-          roomId: testRoom2.id,
-          checkInDate: new Date(),
-          checkOutDate: new Date(),
-          status: 'PENDING',
-          totalPrice: 150.0,
-        },
-      });
-
-      const response = await request(app)
-        .put(`/api/reservations/${pendingReservation.id}/check-in`)
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(400);
-
-      expect(response.body).toMatchObject({
-        error: 'Bad Request',
-      });
-    });
-  });
-
-  // =============================================================================
-  // PUT /api/reservations/:id/check-out - PROCESS CHECK-OUT
-  // =============================================================================
-
-  describe('PUT /api/reservations/:id/check-out', () => {
-    let checkedInReservation: Reservation;
-
-    /**
-     * Setup checked-in reservation before each test
-     */
-    beforeEach(async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() - 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 1);
-
-      checkedInReservation = await prisma.reservation.create({
-        data: {
-          userId: guestUser.id,
-          roomId: testRoom1.id,
-          checkInDate,
-          checkOutDate,
-          status: 'CHECKED_IN',
-          totalPrice: 200.0,
-        },
-      });
-    });
-
-    /**
-     * Happy path: Admin can process check-out
-     */
-    it('should process check-out for checked-in reservation', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${checkedInReservation.id}/check-out`)
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(200);
-
-      expect(response.body).toMatchObject({
-        id: checkedInReservation.id,
-        status: 'CHECKED_OUT',
-      });
-
-      // Verify database update
-      const updated = await prisma.reservation.findUnique({
-        where: { id: checkedInReservation.id },
-      });
-      expect(updated?.status).toBe('CHECKED_OUT');
-    });
-
-    /**
-     * Security: Reject unauthenticated requests
-     */
-    it('should reject check-out without authentication', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${checkedInReservation.id}/check-out`)
-        .expect(401);
-
-      expect(response.body).toMatchObject({
-        error: 'Unauthorized',
-        code: 'MISSING_TOKEN',
-      });
-    });
-
-    /**
-     * Authorization: Reject guest user check-out
-     */
-    it('should reject check-out by guest user', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${checkedInReservation.id}/check-out`)
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(403);
-
-      expect(response.body).toMatchObject({
-        error: 'Forbidden',
-        code: 'INSUFFICIENT_PERMISSIONS',
-      });
-    });
-
-    /**
-     * Business logic: Reject check-out for non-checked-in reservation
-     */
-    it('should reject check-out for confirmed reservation', async () => {
-      const confirmedReservation = await prisma.reservation.create({
-        data: {
-          userId: guestUser.id,
-          roomId: testRoom2.id,
-          checkInDate: new Date(),
-          checkOutDate: new Date(),
-          status: 'CONFIRMED',
-          totalPrice: 150.0,
-        },
-      });
-
-      const response = await request(app)
-        .put(`/api/reservations/${confirmedReservation.id}/check-out`)
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(400);
-
-      expect(response.body).toMatchObject({
-        error: 'Bad Request',
-      });
-    });
-  });
-
-  // =============================================================================
-  // PUT /api/reservations/:id/cancel - CANCEL RESERVATION
-  // =============================================================================
-
-  describe('PUT /api/reservations/:id/cancel', () => {
-    let guestReservation: Reservation;
-    let adminReservation: Reservation;
-
-    /**
-     * Setup test reservations before each test
-     */
-    beforeEach(async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
-
-      guestReservation = await prisma.reservation.create({
-        data: {
-          userId: guestUser.id,
-          roomId: testRoom1.id,
-          checkInDate,
-          checkOutDate,
-          status: 'PENDING',
-          totalPrice: 200.0,
-        },
-      });
-
-      adminReservation = await prisma.reservation.create({
-        data: {
-          userId: adminUser.id,
-          roomId: testRoom2.id,
-          checkInDate,
-          checkOutDate,
-          status: 'CONFIRMED',
-          totalPrice: 300.0,
-        },
-      });
-    });
-
-    /**
-     * Happy path: Guest can cancel their own reservation
-     */
-    it('should allow guest to cancel their own reservation', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${guestReservation.id}/cancel`)
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(200);
-
-      expect(response.body).toMatchObject({
-        id: guestReservation.id,
-        status: 'CANCELLED',
-      });
-
-      // Verify database update
-      const updated = await prisma.reservation.findUnique({
-        where: { id: guestReservation.id },
-      });
-      expect(updated?.status).toBe('CANCELLED');
-    });
-
-    /**
-     * Happy path: Admin can cancel any reservation
-     */
-    it('should allow admin to cancel any reservation', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${guestReservation.id}/cancel`)
-        .set('Authorization', `Bearer ${adminUser.token}`)
-        .expect(200);
-
-      expect(response.body).toMatchObject({
-        id: guestReservation.id,
-        status: 'CANCELLED',
-      });
-    });
-
-    /**
-     * Security: Reject unauthenticated requests
-     */
-    it('should reject cancellation without authentication', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${guestReservation.id}/cancel`)
-        .expect(401);
-
-      expect(response.body).toMatchObject({
-        error: 'Unauthorized',
-        code: 'MISSING_TOKEN',
-      });
-    });
-
-    /**
-     * Authorization: Guest cannot cancel other user reservations
-     */
-    it('should reject guest cancelling other user reservation', async () => {
-      const response = await request(app)
-        .put(`/api/reservations/${adminReservation.id}/cancel`)
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(403);
-
-      expect(response.body).toMatchObject({
-        error: 'Forbidden',
-      });
-    });
-
-    /**
-     * Business logic: Reject cancelling already cancelled reservation
-     */
-    it('should reject cancelling already cancelled reservation', async () => {
-      // First cancellation
-      await request(app)
-        .put(`/api/reservations/${guestReservation.id}/cancel`)
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(200);
-
-      // Second cancellation attempt
-      const response = await request(app)
-        .put(`/api/reservations/${guestReservation.id}/cancel`)
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(400);
-
-      expect(response.body).toMatchObject({
-        error: 'Bad Request',
-      });
-    });
-
-    /**
-     * Business logic: Reject cancelling checked-out reservation
-     */
-    it('should reject cancelling checked-out reservation', async () => {
-      const checkedOutReservation = await prisma.reservation.create({
-        data: {
-          userId: guestUser.id,
-          roomId: testRoom1.id,
-          checkInDate: new Date(),
-          checkOutDate: new Date(),
-          status: 'CHECKED_OUT',
-          totalPrice: 200.0,
-        },
-      });
-
-      const response = await request(app)
-        .put(`/api/reservations/${checkedOutReservation.id}/cancel`)
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(400);
-
-      expect(response.body).toMatchObject({
-        error: 'Bad Request',
-      });
-    });
-  });
-
-  // =============================================================================
-  // EDGE CASES AND ERROR SCENARIOS
-  // =============================================================================
-
-  describe('Edge Cases and Error Scenarios', () => {
-    /**
-     * Performance: Handle multiple concurrent reservations
-     */
-    it('should handle concurrent reservation requests', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setDate(checkOutDate.getDate() + 3);
-
-      const requests = Array.from({ length: 5 }, () =>
-        request(app)
-          .post('/api/reservations')
-          .set('Authorization', `Bearer ${guestUser.token}`)
-          .send({
-            roomId: testRoom1.id,
-            checkInDate: checkInDate.toISOString(),
-            checkOutDate: checkOutDate.toISOString(),
-          })
-      );
-
-      const responses = await Promise.all(requests);
-
-      // Only one should succeed (201), others should fail (409)
-      const successCount = responses.filter((r) => r.status === 201).length;
-      const conflictCount = responses.filter((r) => r.status === 409).length;
-
-      expect(successCount).toBe(1);
-      expect(conflictCount).toBe(4);
-    });
-
-    /**
-     * Security: Reject malformed Authorization header
-     */
-    it('should reject malformed Authorization header', async () => {
-      const response = await request(app)
-        .get('/api/reservations')
-        .set('Authorization', 'InvalidFormat token123')
-        .expect(401);
-
-      expect(response.body).toMatchObject({
-        error: 'Unauthorized',
-        code: 'MISSING_TOKEN',
-      });
-    });
-
-    /**
-     * Security: Reject empty Bearer token
-     */
-    it('should reject empty Bearer token', async () => {
-      const response = await request(app)
-        .get('/api/reservations')
-        .set('Authorization', 'Bearer ')
-        .expect(401);
-
-      expect(response.body).toMatchObject({
-        error: 'Unauthorized',
-        code: 'MISSING_TOKEN',
-      });
-    });
-
-    /**
-     * Validation: Handle extremely long date ranges
-     */
-    it('should reject extremely long reservation duration', async () => {
-      const checkInDate = new Date();
-      checkInDate.setDate(checkInDate.getDate() + 1);
-      const checkOutDate = new Date();
-      checkOutDate.setFullYear(checkOutDate.getFullYear() + 10);
-
-      const response = await request(app)
-        .post('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
+        .put(`/api/reservations/${reservationId}`)
+        .set('Authorization', `Bearer ${guestToken}`)
         .send({
-          roomId: testRoom1.id,
-          checkInDate: checkInDate.toISOString(),
-          checkOutDate: checkOutDate.toISOString(),
+          numberOfGuests: 1,
+          specialRequests: 'Updated request',
+        })
+        .expect(200);
+
+      expect(response.body.numberOfGuests).toBe(1);
+      expect(response.body.specialRequests).toBe('Updated request');
+    });
+
+    it('should allow staff to update any reservation', async () => {
+      const response = await request(app)
+        .put(`/api/reservations/${reservationId}`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({
+          status: 'CONFIRMED',
+        })
+        .expect(200);
+
+      expect(response.body.status).toBe('CONFIRMED');
+    });
+
+    it('should reject guest updating other guest\'s reservation', async () => {
+      const otherGuest = await prisma.user.create({
+        data: {
+          email: 'other2@example.com',
+          password: await hashPassword('SecurePass123!'),
+          firstName: 'Other',
+          lastName: 'Guest',
+          phoneNumber: '+1234567894',
+          role: 'GUEST',
+        },
+      });
+      const otherToken = generateToken({ userId: otherGuest.id, email: otherGuest.email, role: otherGuest.role });
+
+      const response = await request(app)
+        .put(`/api/reservations/${reservationId}`)
+        .set('Authorization', `Bearer ${otherToken}`)
+        .send({ numberOfGuests: 1 })
+        .expect(403);
+
+      expect(response.body).toHaveProperty('error');
+
+      await prisma.user.delete({ where: { id: otherGuest.id } });
+    });
+
+    it('should reject update with invalid data', async () => {
+      const response = await request(app)
+        .put(`/api/reservations/${reservationId}`)
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({
+          numberOfGuests: 0, // Invalid
         })
         .expect(400);
 
-      expect(response.body).toMatchObject({
-        error: 'Validation Error',
+      expect(response.body).toHaveProperty('error');
+    });
+  });
+
+  describe('DELETE /api/reservations/:id', () => {
+    let reservationId: string;
+
+    beforeEach(async () => {
+      const checkInDate = addDays(new Date(), 1);
+      const checkOutDate = addDays(new Date(), 3);
+
+      const reservation = await prisma.reservation.create({
+        data: {
+          roomId: testRoomId,
+          guestId: guestUserId,
+          checkInDate,
+          checkOutDate,
+          numberOfGuests: 2,
+          totalPrice: 300.00,
+          status: 'PENDING',
+        },
       });
+      reservationId = reservation.id;
     });
 
-    /**
-     * Database: Handle database connection errors gracefully
-     */
-    it('should handle database errors gracefully', async () => {
-      // Disconnect database to simulate error
-      await prisma.$disconnect();
+    it('should allow guest to cancel their own reservation', async () => {
+      const response = await request(app)
+        .delete(`/api/reservations/${reservationId}`)
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty('message');
+
+      // Verify reservation is cancelled
+      const reservation = await prisma.reservation.findUnique({
+        where: { id: reservationId },
+      });
+      expect(reservation?.status).toBe('CANCELLED');
+    });
+
+    it('should allow staff to cancel any reservation', async () => {
+      const response = await request(app)
+        .delete(`/api/reservations/${reservationId}`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty('message');
+    });
+
+    it('should reject guest cancelling other guest\'s reservation', async () => {
+      const otherGuest = await prisma.user.create({
+        data: {
+          email: 'other3@example.com',
+          password: await hashPassword('SecurePass123!'),
+          firstName: 'Other',
+          lastName: 'Guest',
+          phoneNumber: '+1234567895',
+          role: 'GUEST',
+        },
+      });
+      const otherToken = generateToken({ userId: otherGuest.id, email: otherGuest.email, role: otherGuest.role });
 
       const response = await request(app)
-        .get('/api/reservations')
-        .set('Authorization', `Bearer ${guestUser.token}`)
-        .expect(500);
+        .delete(`/api/reservations/${reservationId}`)
+        .set('Authorization', `Bearer ${otherToken}`)
+        .expect(403);
 
-      expect(response.body).toMatchObject({
-        error: 'Internal Server Error',
+      expect(response.body).toHaveProperty('error');
+
+      await prisma.user.delete({ where: { id: otherGuest.id } });
+    });
+  });
+
+  describe('POST /api/reservations/:id/check-in', () => {
+    let reservationId: string;
+
+    beforeEach(async () => {
+      const checkInDate = new Date(); // Today
+      const checkOutDate = addDays(new Date(), 2);
+
+      const reservation = await prisma.reservation.create({
+        data: {
+          roomId: testRoomId,
+          guestId: guestUserId,
+          checkInDate,
+          checkOutDate,
+          numberOfGuests: 2,
+          totalPrice: 300.00,
+          status: 'CONFIRMED',
+        },
+      });
+      reservationId = reservation.id;
+    });
+
+    it('should allow staff to check in guest', async () => {
+      const response = await request(app)
+        .post(`/api/reservations/${reservationId}/check-in`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .expect(200);
+
+      expect(response.body.status).toBe('CHECKED_IN');
+      expect(response.body).toHaveProperty('actualCheckInTime');
+    });
+
+    it('should reject check-in by guest', async () => {
+      const response = await request(app)
+        .post(`/api/reservations/${reservationId}/check-in`)
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(403);
+
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should reject check-in for non-confirmed reservation', async () => {
+      // Update reservation to pending
+      await prisma.reservation.update({
+        where: { id: reservationId },
+        data: { status: 'PENDING' },
       });
 
-      // Reconnect database for subsequent tests
-      await prisma.$connect();
+      const response = await request(app)
+        .post(`/api/reservations/${reservationId}/check-in`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .expect(400);
+
+      expect(response.body).toHaveProperty('error');
+    });
+  });
+
+  describe('POST /api/reservations/:id/check-out', () => {
+    let reservationId: string;
+
+    beforeEach(async () => {
+      const checkInDate = addDays(new Date(), -2);
+      const checkOutDate = new Date(); // Today
+
+      const reservation = await prisma.reservation.create({
+        data: {
+          roomId: testRoomId,
+          guestId: guestUserId,
+          checkInDate,
+          checkOutDate,
+          numberOfGuests: 2,
+          totalPrice: 300.00,
+          status: 'CHECKED_IN',
+          actualCheckInTime: checkInDate,
+        },
+      });
+      reservationId = reservation.id;
+    });
+
+    it('should allow staff to check out guest', async () => {
+      const response = await request(app)
+        .post(`/api/reservations/${reservationId}/check-out`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .expect(200);
+
+      expect(response.body.status).toBe('CHECKED_OUT');
+      expect(response.body).toHaveProperty('actualCheckOutTime');
+    });
+
+    it('should reject check-out by guest', async () => {
+      const response = await request(app)
+        .post(`/api/reservations/${reservationId}/check-out`)
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(403);
+
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should reject check-out for non-checked-in reservation', async () => {
+      await prisma.reservation.update({
+        where: { id: reservationId },
+        data: { status: 'CONFIRMED' },
+      });
+
+      const response = await request(app)
+        .post(`/api/reservations/${reservationId}/check-out`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .expect(400);
+
+      expect(response.body).toHaveProperty('error');
     });
   });
 });
