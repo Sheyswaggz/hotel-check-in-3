@@ -1,1202 +1,851 @@
-// src/__tests__/integration/auth.integration.test.ts
-// =============================================================================
-// AUTHENTICATION INTEGRATION TESTS
-// =============================================================================
-// Comprehensive integration test suite for authentication endpoints including
-// user registration, login, profile retrieval, and security validation.
-//
-// Test Coverage:
-// - User registration with validation
-// - User authentication and token generation
-// - Protected route access control
-// - Input validation and sanitization
-// - Error handling and edge cases
-// - Security scenarios (SQL injection, XSS)
-// - Database transaction isolation
-// =============================================================================
-
 import request from 'supertest';
-import { app } from '../../app.js';
-import { prisma } from '../../config/database.js';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
-import { environment } from '../../config/environment.js';
+import { PrismaClient } from '@prisma/client';
+import app from '../../app';
+import { hashPassword } from '../../utils/password.util';
+import { generateToken } from '../../utils/jwt.util';
+
+const prisma = new PrismaClient();
 
 // =============================================================================
-// TEST DATA FACTORIES
+// TEST DATA SETUP
 // =============================================================================
 
-/**
- * Factory for generating test user data
- */
-class UserFactory {
-  private static counter = 0;
+const testUser = {
+  email: 'test@example.com',
+  password: 'Test123!@#',
+  firstName: 'Test',
+  lastName: 'User',
+  role: 'GUEST' as const,
+};
 
-  /**
-   * Creates unique test user data
-   */
-  static create(overrides: Partial<TestUserData> = {}): TestUserData {
-    this.counter++;
-    return {
-      email: `test.user${this.counter}@example.com`,
-      password: 'SecurePass123!',
-      role: 'GUEST',
-      ...overrides,
-    };
-  }
+const testStaff = {
+  email: 'staff@example.com',
+  password: 'Staff123!@#',
+  firstName: 'Staff',
+  lastName: 'Member',
+  role: 'STAFF' as const,
+};
 
-  /**
-   * Creates multiple test users
-   */
-  static createMany(count: number): TestUserData[] {
-    return Array.from({ length: count }, () => this.create());
-  }
-
-  /**
-   * Resets counter for test isolation
-   */
-  static reset(): void {
-    this.counter = 0;
-  }
-}
-
-/**
- * Test user data interface
- */
-interface TestUserData {
-  email: string;
-  password: string;
-  role: 'GUEST' | 'ADMIN';
-}
-
-/**
- * Created user response interface
- */
-interface CreatedUser {
-  id: string;
-  email: string;
-  role: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * Authentication response interface
- */
-interface AuthResponse {
-  user: CreatedUser;
-  token: string;
-}
-
-// =============================================================================
-// TEST UTILITIES
-// =============================================================================
-
-/**
- * Generates a valid JWT token for testing
- */
-function generateTestToken(userId: string, role: string = 'GUEST'): string {
-  return jwt.sign(
-    { userId, role },
-    environment.jwtSecret,
-    { expiresIn: '1h' }
-  );
-}
-
-/**
- * Generates an expired JWT token for testing
- */
-function generateExpiredToken(userId: string): string {
-  return jwt.sign(
-    { userId, role: 'GUEST' },
-    environment.jwtSecret,
-    { expiresIn: '-1h' } // Already expired
-  );
-}
-
-/**
- * Generates an invalid JWT token for testing
- */
-function generateInvalidToken(): string {
-  return jwt.sign(
-    { userId: 'test-user-id', role: 'GUEST' },
-    'wrong-secret-key',
-    { expiresIn: '1h' }
-  );
-}
-
-/**
- * Creates a test user directly in the database
- */
-async function createTestUser(userData: TestUserData): Promise<CreatedUser> {
-  const hashedPassword = await bcrypt.hash(userData.password, 10);
-  
-  const user = await prisma.user.create({
-    data: {
-      email: userData.email,
-      password: hashedPassword,
-      role: userData.role,
-    },
-  });
-
-  return {
-    id: user.id,
-    email: user.email,
-    role: user.role,
-    createdAt: user.createdAt.toISOString(),
-    updatedAt: user.updatedAt.toISOString(),
-  };
-}
-
-/**
- * Cleans up test users from database
- */
-async function cleanupTestUsers(): Promise<void> {
-  await prisma.user.deleteMany({
-    where: {
-      email: {
-        contains: '@example.com',
-      },
-    },
-  });
-}
+const testAdmin = {
+  email: 'admin@example.com',
+  password: 'Admin123!@#',
+  firstName: 'Admin',
+  lastName: 'User',
+  role: 'ADMIN' as const,
+};
 
 // =============================================================================
 // TEST SUITE SETUP AND TEARDOWN
 // =============================================================================
 
-describe('Authentication Integration Tests', () => {
-  // Reset factory counter before all tests
-  beforeAll(() => {
-    UserFactory.reset();
+describe('Auth Integration Tests', () => {
+  beforeAll(async () => {
+    // Clean up test data
+    await prisma.user.deleteMany({
+      where: {
+        email: {
+          in: [testUser.email, testStaff.email, testAdmin.email],
+        },
+      },
+    });
   });
 
-  // Clean up test data after each test for isolation
-  afterEach(async () => {
-    await cleanupTestUsers();
-    UserFactory.reset();
-  });
-
-  // Ensure database connection is closed after all tests
   afterAll(async () => {
+    // Clean up test data
+    await prisma.user.deleteMany({
+      where: {
+        email: {
+          in: [testUser.email, testStaff.email, testAdmin.email],
+        },
+      },
+    });
     await prisma.$disconnect();
   });
 
-  // =============================================================================
-  // USER REGISTRATION TESTS
-  // =============================================================================
+  beforeEach(async () => {
+    // Clean up before each test
+    await prisma.user.deleteMany({
+      where: {
+        email: {
+          in: [testUser.email, testStaff.email, testAdmin.email],
+        },
+      },
+    });
+  });
+
+  // ===========================================================================
+  // REGISTRATION TESTS
+  // ===========================================================================
 
   describe('POST /api/auth/register', () => {
-    describe('✅ Success Scenarios', () => {
-      it('should register a new user with valid data', async () => {
-        // Arrange
-        const userData = UserFactory.create();
+    it('should register a new user successfully', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send(testUser)
+        .expect(201);
 
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect('Content-Type', /json/)
-          .expect(201);
+      expect(response.body).toHaveProperty('user');
+      expect(response.body).toHaveProperty('token');
+      expect(response.body.user.email).toBe(testUser.email);
+      expect(response.body.user.role).toBe('GUEST');
+      expect(response.body.user).not.toHaveProperty('password');
 
-        // Assert
-        expect(response.body).toHaveProperty('user');
-        expect(response.body).toHaveProperty('token');
-        expect(response.body.user).toMatchObject({
-          email: userData.email,
-          role: userData.role,
-        });
-        expect(response.body.user).toHaveProperty('id');
-        expect(response.body.user).toHaveProperty('createdAt');
-        expect(response.body.user).toHaveProperty('updatedAt');
-        expect(response.body.user).not.toHaveProperty('password');
-        expect(typeof response.body.token).toBe('string');
-        expect(response.body.token.length).toBeGreaterThan(0);
-
-        // Verify token is valid
-        const decoded = jwt.verify(response.body.token, environment.jwtSecret) as {
-          userId: string;
-          role: string;
-        };
-        expect(decoded.userId).toBe(response.body.user.id);
-        expect(decoded.role).toBe(response.body.user.role);
-
-        // Verify user exists in database
-        const dbUser = await prisma.user.findUnique({
-          where: { email: userData.email },
-        });
-        expect(dbUser).toBeDefined();
-        expect(dbUser?.email).toBe(userData.email);
-        expect(dbUser?.password).not.toBe(userData.password); // Password should be hashed
+      // Verify user was created in database
+      const user = await prisma.user.findUnique({
+        where: { email: testUser.email },
       });
-
-      it('should register user with ADMIN role', async () => {
-        // Arrange
-        const userData = UserFactory.create({ role: 'ADMIN' });
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(201);
-
-        // Assert
-        expect(response.body.user.role).toBe('ADMIN');
-      });
-
-      it('should hash password before storing', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-
-        // Act
-        await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(201);
-
-        // Assert
-        const dbUser = await prisma.user.findUnique({
-          where: { email: userData.email },
-        });
-        expect(dbUser?.password).not.toBe(userData.password);
-        expect(dbUser?.password).toMatch(/^\$2[aby]\$\d{2}\$/); // bcrypt hash pattern
-
-        // Verify password can be validated
-        const isValid = await bcrypt.compare(userData.password, dbUser!.password);
-        expect(isValid).toBe(true);
-      });
+      expect(user).toBeTruthy();
+      expect(user?.email).toBe(testUser.email);
     });
 
-    describe('❌ Validation Errors', () => {
-      it('should reject registration with missing email', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        delete (userData as Partial<TestUserData>).email;
+    it('should return 400 for invalid email format', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          ...testUser,
+          email: 'invalid-email',
+        })
+        .expect(400);
 
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(400);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/email/i);
-      });
-
-      it('should reject registration with invalid email format', async () => {
-        // Arrange
-        const userData = UserFactory.create({ email: 'invalid-email' });
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(400);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/email/i);
-      });
-
-      it('should reject registration with missing password', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        delete (userData as Partial<TestUserData>).password;
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(400);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/password/i);
-      });
-
-      it('should reject registration with weak password', async () => {
-        // Arrange
-        const userData = UserFactory.create({ password: '123' });
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(400);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/password/i);
-      });
-
-      it('should reject registration with invalid role', async () => {
-        // Arrange
-        const userData = {
-          ...UserFactory.create(),
-          role: 'INVALID_ROLE',
-        };
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(400);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/role/i);
-      });
-
-      it('should reject registration with duplicate email', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        await createTestUser(userData);
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(409);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/already exists|duplicate/i);
-      });
+      expect(response.body).toHaveProperty('error');
     });
 
-    describe('🛡️ Security Tests', () => {
-      it('should sanitize email input to prevent XSS', async () => {
-        // Arrange
-        const userData = UserFactory.create({
-          email: 'test<script>alert("xss")</script>@example.com',
-        });
+    it('should return 400 for weak password', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          ...testUser,
+          password: 'weak',
+        })
+        .expect(400);
 
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(400);
-
-        // Assert
-        expect(response.body.error.message).toMatch(/email/i);
-      });
-
-      it('should prevent SQL injection in email field', async () => {
-        // Arrange
-        const userData = UserFactory.create({
-          email: "admin'--@example.com",
-        });
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(400);
-
-        // Assert
-        expect(response.body.error.message).toMatch(/email/i);
-      });
-
-      it('should not expose password in response', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(201);
-
-        // Assert
-        expect(response.body.user).not.toHaveProperty('password');
-        expect(JSON.stringify(response.body)).not.toContain(userData.password);
-      });
-
-      it('should not expose password hash in error messages', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        await createTestUser(userData);
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(409);
-
-        // Assert
-        expect(response.body.error.message).not.toMatch(/\$2[aby]\$/);
-      });
+      expect(response.body).toHaveProperty('error');
     });
 
-    describe('⚡ Performance Tests', () => {
-      it('should complete registration within 2 seconds', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        const startTime = Date.now();
+    it('should return 400 for missing required fields', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: testUser.email,
+          // Missing password, firstName, lastName
+        })
+        .expect(400);
 
-        // Act
-        await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(201);
+      expect(response.body).toHaveProperty('error');
+    });
 
-        // Assert
-        const duration = Date.now() - startTime;
-        expect(duration).toBeLessThan(2000);
+    it('should return 409 for duplicate email', async () => {
+      // First registration
+      await request(app).post('/api/auth/register').send(testUser).expect(201);
+
+      // Second registration with same email
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send(testUser)
+        .expect(409);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('already exists');
+    });
+
+    it('should hash password before storing', async () => {
+      await request(app).post('/api/auth/register').send(testUser).expect(201);
+
+      const user = await prisma.user.findUnique({
+        where: { email: testUser.email },
       });
 
-      it('should handle concurrent registrations', async () => {
-        // Arrange
-        const users = UserFactory.createMany(5);
+      expect(user?.password).not.toBe(testUser.password);
+      expect(user?.password).toMatch(/^\$2[aby]\$\d+\$/);
+    });
 
-        // Act
-        const promises = users.map((userData) =>
-          request(app)
-            .post('/api/auth/register')
-            .send(userData)
-        );
+    it('should set default role to GUEST if not specified', async () => {
+      const userWithoutRole = {
+        email: 'norole@example.com',
+        password: 'Test123!@#',
+        firstName: 'No',
+        lastName: 'Role',
+      };
 
-        const responses = await Promise.all(promises);
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send(userWithoutRole)
+        .expect(201);
 
-        // Assert
-        responses.forEach((response) => {
-          expect(response.status).toBe(201);
-          expect(response.body).toHaveProperty('user');
-          expect(response.body).toHaveProperty('token');
-        });
+      expect(response.body.user.role).toBe('GUEST');
 
-        // Verify all users were created
-        const dbUsers = await prisma.user.findMany({
-          where: {
-            email: {
-              in: users.map((u) => u.email),
-            },
-          },
-        });
-        expect(dbUsers).toHaveLength(5);
+      // Cleanup
+      await prisma.user.delete({
+        where: { email: userWithoutRole.email },
       });
     });
   });
 
-  // =============================================================================
-  // USER LOGIN TESTS
-  // =============================================================================
+  // ===========================================================================
+  // LOGIN TESTS
+  // ===========================================================================
 
   describe('POST /api/auth/login', () => {
-    describe('✅ Success Scenarios', () => {
-      it('should login user with valid credentials', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        await createTestUser(userData);
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: userData.email,
-            password: userData.password,
-          })
-          .expect('Content-Type', /json/)
-          .expect(200);
-
-        // Assert
-        expect(response.body).toHaveProperty('user');
-        expect(response.body).toHaveProperty('token');
-        expect(response.body.user.email).toBe(userData.email);
-        expect(response.body.user.role).toBe(userData.role);
-        expect(response.body.user).not.toHaveProperty('password');
-        expect(typeof response.body.token).toBe('string');
-
-        // Verify token is valid
-        const decoded = jwt.verify(response.body.token, environment.jwtSecret) as {
-          userId: string;
-          role: string;
-        };
-        expect(decoded.userId).toBe(response.body.user.id);
-        expect(decoded.role).toBe(response.body.user.role);
-      });
-
-      it('should login ADMIN user', async () => {
-        // Arrange
-        const userData = UserFactory.create({ role: 'ADMIN' });
-        await createTestUser(userData);
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: userData.email,
-            password: userData.password,
-          })
-          .expect(200);
-
-        // Assert
-        expect(response.body.user.role).toBe('ADMIN');
-      });
-
-      it('should generate new token on each login', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        await createTestUser(userData);
-
-        // Act
-        const response1 = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: userData.email,
-            password: userData.password,
-          })
-          .expect(200);
-
-        const response2 = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: userData.email,
-            password: userData.password,
-          })
-          .expect(200);
-
-        // Assert
-        expect(response1.body.token).not.toBe(response2.body.token);
+    beforeEach(async () => {
+      // Create test user
+      const hashedPassword = await hashPassword(testUser.password);
+      await prisma.user.create({
+        data: {
+          ...testUser,
+          password: hashedPassword,
+        },
       });
     });
 
-    describe('❌ Authentication Errors', () => {
-      it('should reject login with non-existent email', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: userData.email,
-            password: userData.password,
-          })
-          .expect(401);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/invalid credentials/i);
-      });
-
-      it('should reject login with incorrect password', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        await createTestUser(userData);
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: userData.email,
-            password: 'WrongPassword123!',
-          })
-          .expect(401);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/invalid credentials/i);
-      });
-
-      it('should reject login with missing email', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send({
-            password: userData.password,
-          })
-          .expect(400);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/email/i);
-      });
-
-      it('should reject login with missing password', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: userData.email,
-          })
-          .expect(400);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/password/i);
-      });
-
-      it('should not reveal whether email exists', async () => {
-        // Arrange
-        const existingUser = UserFactory.create();
-        await createTestUser(existingUser);
-        const nonExistentUser = UserFactory.create();
-
-        // Act
-        const response1 = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: existingUser.email,
-            password: 'WrongPassword123!',
-          })
-          .expect(401);
-
-        const response2 = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: nonExistentUser.email,
-            password: nonExistentUser.password,
-          })
-          .expect(401);
-
-        // Assert - Both should return same generic error
-        expect(response1.body.error.message).toBe(response2.body.error.message);
-        expect(response1.body.error.message).toMatch(/invalid credentials/i);
-      });
-    });
-
-    describe('🛡️ Security Tests', () => {
-      it('should prevent SQL injection in login', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        await createTestUser(userData);
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: "admin'--",
-            password: "' OR '1'='1",
-          })
-          .expect(401);
-
-        // Assert
-        expect(response.body.error.message).toMatch(/invalid credentials/i);
-      });
-
-      it('should rate limit login attempts', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        await createTestUser(userData);
-
-        // Act - Make multiple failed login attempts
-        const attempts = Array.from({ length: 10 }, () =>
-          request(app)
-            .post('/api/auth/login')
-            .send({
-              email: userData.email,
-              password: 'WrongPassword123!',
-            })
-        );
-
-        const responses = await Promise.all(attempts);
-
-        // Assert - At least some should be rate limited (if implemented)
-        const rateLimitedResponses = responses.filter((r) => r.status === 429);
-        // Note: This test assumes rate limiting is implemented
-        // If not implemented, this test documents the security requirement
-      });
-
-      it('should not expose password in any response', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        await createTestUser(userData);
-
-        // Act
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: userData.email,
-            password: userData.password,
-          })
-          .expect(200);
-
-        // Assert
-        expect(response.body.user).not.toHaveProperty('password');
-        expect(JSON.stringify(response.body)).not.toContain(userData.password);
-      });
-    });
-
-    describe('⚡ Performance Tests', () => {
-      it('should complete login within 2 seconds', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        await createTestUser(userData);
-        const startTime = Date.now();
-
-        // Act
-        await request(app)
-          .post('/api/auth/login')
-          .send({
-            email: userData.email,
-            password: userData.password,
-          })
-          .expect(200);
-
-        // Assert
-        const duration = Date.now() - startTime;
-        expect(duration).toBeLessThan(2000);
-      });
-    });
-  });
-
-  // =============================================================================
-  // AUTHENTICATED USER PROFILE TESTS
-  // =============================================================================
-
-  describe('GET /api/auth/me', () => {
-    describe('✅ Success Scenarios', () => {
-      it('should return user profile with valid token', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        const user = await createTestUser(userData);
-        const token = generateTestToken(user.id, user.role);
-
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', `Bearer ${token}`)
-          .expect('Content-Type', /json/)
-          .expect(200);
-
-        // Assert
-        expect(response.body).toHaveProperty('user');
-        expect(response.body.user).toMatchObject({
-          id: user.id,
-          email: user.email,
-          role: user.role,
-        });
-        expect(response.body.user).not.toHaveProperty('password');
-      });
-
-      it('should return ADMIN user profile', async () => {
-        // Arrange
-        const userData = UserFactory.create({ role: 'ADMIN' });
-        const user = await createTestUser(userData);
-        const token = generateTestToken(user.id, user.role);
-
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', `Bearer ${token}`)
-          .expect(200);
-
-        // Assert
-        expect(response.body.user.role).toBe('ADMIN');
-      });
-
-      it('should return fresh user data from database', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        const user = await createTestUser(userData);
-        const token = generateTestToken(user.id, user.role);
-
-        // Update user in database
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { role: 'ADMIN' },
-        });
-
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', `Bearer ${token}`)
-          .expect(200);
-
-        // Assert - Should return updated role from database
-        expect(response.body.user.role).toBe('ADMIN');
-      });
-    });
-
-    describe('❌ Authentication Errors', () => {
-      it('should reject request without authorization header', async () => {
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .expect(401);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/token|authorization/i);
-      });
-
-      it('should reject request with malformed authorization header', async () => {
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', 'InvalidFormat')
-          .expect(401);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/token|authorization/i);
-      });
-
-      it('should reject request with invalid token', async () => {
-        // Arrange
-        const invalidToken = generateInvalidToken();
-
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', `Bearer ${invalidToken}`)
-          .expect(401);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/invalid|token/i);
-      });
-
-      it('should reject request with expired token', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        const user = await createTestUser(userData);
-        const expiredToken = generateExpiredToken(user.id);
-
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', `Bearer ${expiredToken}`)
-          .expect(401);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/expired|token/i);
-      });
-
-      it('should reject request with token for non-existent user', async () => {
-        // Arrange
-        const nonExistentUserId = 'non-existent-user-id';
-        const token = generateTestToken(nonExistentUserId);
-
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', `Bearer ${token}`)
-          .expect(401);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error.message).toMatch(/user|not found/i);
-      });
-
-      it('should reject request with empty token', async () => {
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', 'Bearer ')
-          .expect(401);
-
-        // Assert
-        expect(response.body).toHaveProperty('error');
-      });
-    });
-
-    describe('🛡️ Security Tests', () => {
-      it('should not expose password in profile response', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        const user = await createTestUser(userData);
-        const token = generateTestToken(user.id, user.role);
-
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', `Bearer ${token}`)
-          .expect(200);
-
-        // Assert
-        expect(response.body.user).not.toHaveProperty('password');
-        expect(JSON.stringify(response.body)).not.toMatch(/\$2[aby]\$/);
-      });
-
-      it('should validate token signature', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        const user = await createTestUser(userData);
-        const token = generateTestToken(user.id, user.role);
-        
-        // Tamper with token
-        const tamperedToken = token.slice(0, -5) + 'XXXXX';
-
-        // Act
-        const response = await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', `Bearer ${tamperedToken}`)
-          .expect(401);
-
-        // Assert
-        expect(response.body.error.message).toMatch(/invalid|token/i);
-      });
-    });
-
-    describe('⚡ Performance Tests', () => {
-      it('should complete profile retrieval within 1 second', async () => {
-        // Arrange
-        const userData = UserFactory.create();
-        const user = await createTestUser(userData);
-        const token = generateTestToken(user.id, user.role);
-        const startTime = Date.now();
-
-        // Act
-        await request(app)
-          .get('/api/auth/me')
-          .set('Authorization', `Bearer ${token}`)
-          .expect(200);
-
-        // Assert
-        const duration = Date.now() - startTime;
-        expect(duration).toBeLessThan(1000);
-      });
-    });
-  });
-
-  // =============================================================================
-  // AUTHENTICATION MIDDLEWARE TESTS
-  // =============================================================================
-
-  describe('Authentication Middleware', () => {
-    it('should block unauthorized access to protected routes', async () => {
-      // Act
-      const response = await request(app)
-        .get('/api/auth/me')
-        .expect(401);
-
-      // Assert
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error.message).toMatch(/token|authorization/i);
-    });
-
-    it('should allow access with valid token', async () => {
-      // Arrange
-      const userData = UserFactory.create();
-      const user = await createTestUser(userData);
-      const token = generateTestToken(user.id, user.role);
-
-      // Act
-      const response = await request(app)
-        .get('/api/auth/me')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-
-      // Assert
-      expect(response.body).toHaveProperty('user');
-    });
-
-    it('should handle case-insensitive Bearer scheme', async () => {
-      // Arrange
-      const userData = UserFactory.create();
-      const user = await createTestUser(userData);
-      const token = generateTestToken(user.id, user.role);
-
-      // Act
-      const response = await request(app)
-        .get('/api/auth/me')
-        .set('Authorization', `bearer ${token}`)
-        .expect(200);
-
-      // Assert
-      expect(response.body).toHaveProperty('user');
-    });
-  });
-
-  // =============================================================================
-  // ERROR RESPONSE FORMAT TESTS
-  // =============================================================================
-
-  describe('Error Response Format', () => {
-    it('should return consistent error format', async () => {
-      // Act
+    it('should login successfully with correct credentials', async () => {
       const response = await request(app)
         .post('/api/auth/login')
         .send({
-          email: 'test@example.com',
-          password: 'wrong',
+          email: testUser.email,
+          password: testUser.password,
+        })
+        .expect(200);
+
+      expect(response.body).toHaveProperty('user');
+      expect(response.body).toHaveProperty('token');
+      expect(response.body.user.email).toBe(testUser.email);
+      expect(response.body.user).not.toHaveProperty('password');
+    });
+
+    it('should return 401 for incorrect password', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testUser.email,
+          password: 'WrongPassword123!',
         })
         .expect(401);
 
-      // Assert
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toHaveProperty('message');
-      expect(response.body.error).toHaveProperty('status');
-      expect(response.body.error).toHaveProperty('timestamp');
-      expect(response.body.error.status).toBe(401);
-      expect(typeof response.body.error.message).toBe('string');
-      expect(typeof response.body.error.timestamp).toBe('string');
+      expect(response.body.error).toContain('Invalid credentials');
     });
 
-    it('should include request path in error response', async () => {
-      // Act
+    it('should return 401 for non-existent user', async () => {
       const response = await request(app)
-        .get('/api/auth/me')
+        .post('/api/auth/login')
+        .send({
+          email: 'nonexistent@example.com',
+          password: testUser.password,
+        })
         .expect(401);
 
-      // Assert
-      expect(response.body.error).toHaveProperty('path');
-      expect(response.body.error.path).toBe('/api/auth/me');
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('Invalid credentials');
+    });
+
+    it('should return 400 for missing email', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          password: testUser.password,
+        })
+        .expect(400);
+
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should return 400 for missing password', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testUser.email,
+        })
+        .expect(400);
+
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should return valid JWT token', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testUser.email,
+          password: testUser.password,
+        })
+        .expect(200);
+
+      const token = response.body.token;
+      expect(token).toBeTruthy();
+      expect(typeof token).toBe('string');
+      expect(token.split('.')).toHaveLength(3);
     });
   });
 
-  // =============================================================================
-  // EDGE CASES AND BOUNDARY TESTS
-  // =============================================================================
+  // ===========================================================================
+  // PROFILE TESTS
+  // ===========================================================================
 
-  describe('Edge Cases', () => {
-    it('should handle very long email addresses', async () => {
-      // Arrange
-      const longEmail = 'a'.repeat(100) + '@example.com';
-      const userData = UserFactory.create({ email: longEmail });
+  describe('GET /api/auth/profile', () => {
+    let userToken: string;
+    let userId: string;
 
-      // Act
+    beforeEach(async () => {
+      // Create test user
+      const hashedPassword = await hashPassword(testUser.password);
+      const user = await prisma.user.create({
+        data: {
+          ...testUser,
+          password: hashedPassword,
+        },
+      });
+      userId = user.id;
+      userToken = generateToken({ userId: user.id, role: user.role });
+    });
+
+    it('should get user profile with valid token', async () => {
       const response = await request(app)
-        .post('/api/auth/register')
-        .send(userData)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty('id', userId);
+      expect(response.body).toHaveProperty('email', testUser.email);
+      expect(response.body).toHaveProperty('firstName', testUser.firstName);
+      expect(response.body).toHaveProperty('lastName', testUser.lastName);
+      expect(response.body).toHaveProperty('role', testUser.role);
+      expect(response.body).not.toHaveProperty('password');
+    });
+
+    it('should return 401 without token', async () => {
+      const response = await request(app).get('/api/auth/profile').expect(401);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('No token provided');
+    });
+
+    it('should return 401 with invalid token', async () => {
+      const response = await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', 'Bearer invalid-token')
+        .expect(401);
+
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should return 401 with expired token', async () => {
+      // Generate token with past expiration
+      const expiredToken = generateToken(
+        { userId, role: testUser.role },
+        '-1h',
+      );
+
+      const response = await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${expiredToken}`)
+        .expect(401);
+
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should return 404 if user no longer exists', async () => {
+      // Delete user but keep token
+      await prisma.user.delete({ where: { id: userId } });
+
+      const response = await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(404);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('User not found');
+    });
+  });
+
+  // ===========================================================================
+  // UPDATE PROFILE TESTS
+  // ===========================================================================
+
+  describe('PUT /api/auth/profile', () => {
+    let userToken: string;
+    let userId: string;
+
+    beforeEach(async () => {
+      // Create test user
+      const hashedPassword = await hashPassword(testUser.password);
+      const user = await prisma.user.create({
+        data: {
+          ...testUser,
+          password: hashedPassword,
+        },
+      });
+      userId = user.id;
+      userToken = generateToken({ userId: user.id, role: user.role });
+    });
+
+    it('should update user profile successfully', async () => {
+      const updates = {
+        firstName: 'Updated',
+        lastName: 'Name',
+      };
+
+      const response = await request(app)
+        .put('/api/auth/profile')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send(updates)
+        .expect(200);
+
+      expect(response.body).toHaveProperty('firstName', updates.firstName);
+      expect(response.body).toHaveProperty('lastName', updates.lastName);
+      expect(response.body).toHaveProperty('email', testUser.email);
+
+      // Verify in database
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      expect(user?.firstName).toBe(updates.firstName);
+      expect(user?.lastName).toBe(updates.lastName);
+    });
+
+    it('should update password successfully', async () => {
+      const newPassword = 'NewPassword123!@#';
+
+      const response = await request(app)
+        .put('/api/auth/profile')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ password: newPassword })
+        .expect(200);
+
+      expect(response.body).not.toHaveProperty('password');
+
+      // Verify can login with new password
+      await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testUser.email,
+          password: newPassword,
+        })
+        .expect(200);
+
+      // Verify cannot login with old password
+      await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testUser.email,
+          password: testUser.password,
+        })
+        .expect(401);
+    });
+
+    it('should return 401 without token', async () => {
+      const response = await request(app)
+        .put('/api/auth/profile')
+        .send({ firstName: 'Updated' })
+        .expect(401);
+
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should return 400 for invalid email format', async () => {
+      const response = await request(app)
+        .put('/api/auth/profile')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ email: 'invalid-email' })
         .expect(400);
 
-      // Assert
-      expect(response.body.error.message).toMatch(/email/i);
+      expect(response.body).toHaveProperty('error');
     });
 
-    it('should handle very long passwords', async () => {
-      // Arrange
-      const longPassword = 'A1!' + 'a'.repeat(200);
-      const userData = UserFactory.create({ password: longPassword });
-
-      // Act
+    it('should return 400 for weak password', async () => {
       const response = await request(app)
-        .post('/api/auth/register')
-        .send(userData)
+        .put('/api/auth/profile')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ password: 'weak' })
         .expect(400);
 
-      // Assert
-      expect(response.body.error.message).toMatch(/password/i);
+      expect(response.body).toHaveProperty('error');
     });
 
-    it('should handle special characters in email', async () => {
-      // Arrange
-      const userData = UserFactory.create({
-        email: 'test+special@example.com',
-      });
-
-      // Act
+    it('should not allow updating role', async () => {
       const response = await request(app)
-        .post('/api/auth/register')
-        .send(userData)
-        .expect(201);
+        .put('/api/auth/profile')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ role: 'ADMIN' })
+        .expect(200);
 
-      // Assert
-      expect(response.body.user.email).toBe('test+special@example.com');
+      // Role should remain unchanged
+      expect(response.body.role).toBe(testUser.role);
+
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      expect(user?.role).toBe(testUser.role);
     });
 
-    it('should handle unicode characters in password', async () => {
-      // Arrange
-      const userData = UserFactory.create({
-        password: 'SecurePass123!🔒',
+    it('should return 409 for duplicate email', async () => {
+      // Create another user
+      const hashedPassword = await hashPassword(testStaff.password);
+      await prisma.user.create({
+        data: {
+          ...testStaff,
+          password: hashedPassword,
+        },
       });
 
-      // Act
+      // Try to update to existing email
+      const response = await request(app)
+        .put('/api/auth/profile')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ email: testStaff.email })
+        .expect(409);
+
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('already exists');
+    });
+  });
+
+  // ===========================================================================
+  // ROLE-BASED ACCESS TESTS
+  // ===========================================================================
+
+  describe('Role-based Access Control', () => {
+    let guestToken: string;
+    let staffToken: string;
+    let adminToken: string;
+
+    beforeEach(async () => {
+      // Create users with different roles
+      const hashedPassword = await hashPassword('Test123!@#');
+
+      const guest = await prisma.user.create({
+        data: { ...testUser, password: hashedPassword },
+      });
+      const staff = await prisma.user.create({
+        data: { ...testStaff, password: hashedPassword },
+      });
+      const admin = await prisma.user.create({
+        data: { ...testAdmin, password: hashedPassword },
+      });
+
+      guestToken = generateToken({ userId: guest.id, role: guest.role });
+      staffToken = generateToken({ userId: staff.id, role: staff.role });
+      adminToken = generateToken({ userId: admin.id, role: admin.role });
+    });
+
+    it('should allow all authenticated users to access their profile', async () => {
+      await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(200);
+
+      await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .expect(200);
+
+      await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+    });
+
+    it('should include correct role in profile response', async () => {
+      const guestResponse = await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(200);
+      expect(guestResponse.body.role).toBe('GUEST');
+
+      const staffResponse = await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .expect(200);
+      expect(staffResponse.body.role).toBe('STAFF');
+
+      const adminResponse = await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(adminResponse.body.role).toBe('ADMIN');
+    });
+  });
+
+  // ===========================================================================
+  // TOKEN VALIDATION TESTS
+  // ===========================================================================
+
+  describe('Token Validation', () => {
+    let userToken: string;
+    let userId: string;
+
+    beforeEach(async () => {
+      const hashedPassword = await hashPassword(testUser.password);
+      const user = await prisma.user.create({
+        data: {
+          ...testUser,
+          password: hashedPassword,
+        },
+      });
+      userId = user.id;
+      userToken = generateToken({ userId: user.id, role: user.role });
+    });
+
+    it('should accept token in Authorization header', async () => {
+      await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+    });
+
+    it('should reject token without Bearer prefix', async () => {
+      await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', userToken)
+        .expect(401);
+    });
+
+    it('should reject malformed token', async () => {
+      await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', 'Bearer malformed.token')
+        .expect(401);
+    });
+
+    it('should reject token with invalid signature', async () => {
+      const parts = userToken.split('.');
+      const invalidToken = `${parts[0]}.${parts[1]}.invalidsignature`;
+
+      await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${invalidToken}`)
+        .expect(401);
+    });
+  });
+
+  // ===========================================================================
+  // RATE LIMITING TESTS
+  // ===========================================================================
+
+  describe('Rate Limiting', () => {
+    it('should rate limit login attempts', async () => {
+      const hashedPassword = await hashPassword(testUser.password);
+      await prisma.user.create({
+        data: {
+          ...testUser,
+          password: hashedPassword,
+        },
+      });
+
+      // Make multiple failed login attempts
+      const attempts = 10;
+      const _rateLimitedResponses = [];
+
+      for (let i = 0; i < attempts; i++) {
+        const response = await request(app)
+          .post('/api/auth/login')
+          .send({
+            email: testUser.email,
+            password: 'WrongPassword',
+          });
+
+        _rateLimitedResponses.push(response);
+
+        // After certain number of attempts, should get rate limited
+        if (i >= 5) {
+          expect([401, 429]).toContain(response.status);
+        }
+      }
+    }, 30000);
+  });
+
+  // ===========================================================================
+  // INPUT VALIDATION TESTS
+  // ===========================================================================
+
+  describe('Input Validation', () => {
+    it('should validate email format on registration', async () => {
+      const invalidEmails = [
+        'notanemail',
+        '@example.com',
+        'user@',
+        'user @example.com',
+        'user@example',
+      ];
+
+      for (const email of invalidEmails) {
+        const response = await request(app)
+          .post('/api/auth/register')
+          .send({
+            ...testUser,
+            email,
+          });
+
+        expect(response.status).toBe(400);
+        expect(response.body).toHaveProperty('error');
+      }
+    });
+
+    it('should validate password strength on registration', async () => {
+      const weakPasswords = [
+        'short',
+        'nouppercase123!',
+        'NOLOWERCASE123!',
+        'NoSpecialChar123',
+        'NoNumbers!@#',
+      ];
+
+      for (const password of weakPasswords) {
+        const response = await request(app)
+          .post('/api/auth/register')
+          .send({
+            ...testUser,
+            password,
+          });
+
+        expect(response.status).toBe(400);
+        expect(response.body).toHaveProperty('error');
+      }
+    });
+
+    it('should validate required fields on registration', async () => {
+      const requiredFields = ['email', 'password', 'firstName', 'lastName'];
+
+      for (const field of requiredFields) {
+        const userData = { ...testUser };
+        delete userData[field as keyof typeof userData];
+
+        const response = await request(app)
+          .post('/api/auth/register')
+          .send(userData);
+
+        expect(response.status).toBe(400);
+        expect(response.body).toHaveProperty('error');
+      }
+    });
+
+    it('should sanitize input to prevent XSS', async () => {
+      const xssPayload = '<script>alert("XSS")</script>';
+
       const response = await request(app)
         .post('/api/auth/register')
-        .send(userData)
+        .send({
+          ...testUser,
+          firstName: xssPayload,
+        })
         .expect(201);
 
-      // Assert
-      expect(response.body).toHaveProperty('token');
+      // Should not contain script tags
+      expect(response.body.user.firstName).not.toContain('<script>');
+    });
+  });
 
-      // Verify login works with unicode password
+  // ===========================================================================
+  // ERROR HANDLING TESTS
+  // ===========================================================================
+
+  describe('Error Handling', () => {
+    it('should return consistent error format', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: 'nonexistent@example.com',
+          password: 'password',
+        })
+        .expect(401);
+
+      expect(response.body).toHaveProperty('error');
+      expect(typeof response.body.error).toBe('string');
+    });
+
+    it('should not expose sensitive information in errors', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: 'nonexistent@example.com',
+          password: 'password',
+        })
+        .expect(401);
+
+      // Should not reveal whether email exists
+      expect(response.body.error.toLowerCase()).not.toContain('user not found');
+      expect(response.body.error.toLowerCase()).toContain('invalid credentials');
+    });
+
+    it('should handle database errors gracefully', async () => {
+      // Disconnect database to simulate error
+      await prisma.$disconnect();
+
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send(testUser);
+
+      expect([500, 503]).toContain(response.status);
+      expect(response.body).toHaveProperty('error');
+
+      // Reconnect for other tests
+      await prisma.$connect();
+    });
+  });
+
+  // ===========================================================================
+  // SECURITY TESTS
+  // ===========================================================================
+
+  describe('Security', () => {
+    it('should not return password in any response', async () => {
+      // Registration
+      const registerResponse = await request(app)
+        .post('/api/auth/register')
+        .send(testUser)
+        .expect(201);
+      expect(registerResponse.body.user).not.toHaveProperty('password');
+
+      // Login
       const loginResponse = await request(app)
         .post('/api/auth/login')
         .send({
-          email: userData.email,
-          password: userData.password,
+          email: testUser.email,
+          password: testUser.password,
+        })
+        .expect(200);
+      expect(loginResponse.body.user).not.toHaveProperty('password');
+
+      // Profile
+      const profileResponse = await request(app)
+        .get('/api/auth/profile')
+        .set('Authorization', `Bearer ${loginResponse.body.token}`)
+        .expect(200);
+      expect(profileResponse.body).not.toHaveProperty('password');
+    });
+
+    it('should use bcrypt for password hashing', async () => {
+      await request(app).post('/api/auth/register').send(testUser).expect(201);
+
+      const user = await prisma.user.findUnique({
+        where: { email: testUser.email },
+      });
+
+      // Bcrypt hashes start with $2a$, $2b$, or $2y$
+      expect(user?.password).toMatch(/^\$2[aby]\$/);
+      expect(user?.password).not.toBe(testUser.password);
+    });
+
+    it('should generate unique tokens for each login', async () => {
+      const hashedPassword = await hashPassword(testUser.password);
+      await prisma.user.create({
+        data: {
+          ...testUser,
+          password: hashedPassword,
+        },
+      });
+
+      const response1 = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testUser.email,
+          password: testUser.password,
         })
         .expect(200);
 
-      expect(loginResponse.body).toHaveProperty('token');
-    });
-
-    it('should handle null values in request body', async () => {
-      // Act
-      const response = await request(app)
-        .post('/api/auth/register')
+      const response2 = await request(app)
+        .post('/api/auth/login')
         .send({
-          email: null,
-          password: null,
-          role: null,
+          email: testUser.email,
+          password: testUser.password,
         })
-        .expect(400);
+        .expect(200);
 
-      // Assert
-      expect(response.body).toHaveProperty('error');
-    });
-
-    it('should handle empty strings in request body', async () => {
-      // Act
-      const response = await request(app)
-        .post('/api/auth/register')
-        .send({
-          email: '',
-          password: '',
-          role: 'GUEST',
-        })
-        .expect(400);
-
-      // Assert
-      expect(response.body).toHaveProperty('error');
+      expect(response1.body.token).not.toBe(response2.body.token);
     });
   });
 });
-
-// =============================================================================
-// TEST COVERAGE SUMMARY
-// =============================================================================
-// This comprehensive test suite provides:
-//
-// ✅ User Registration Tests (15 tests)
-//    - Success scenarios with validation
-//    - Input validation errors
-//    - Security tests (XSS, SQL injection)
-//    - Performance tests
-//    - Concurrent registration handling
-//
-// ✅ User Login Tests (12 tests)
-//    - Success scenarios
-//    - Authentication errors
-//    - Security tests
-//    - Performance tests
-//    - Rate limiting validation
-//
-// ✅ Protected Route Tests (10 tests)
-//    - Valid token access
-//    - Invalid/expired token handling
-//    - Missing authorization handling
-//    - Fresh data retrieval
-//
-// ✅ Middleware Tests (3 tests)
-//    - Authorization blocking
-//    - Token validation
-//    - Case-insensitive handling
-//
-// ✅ Error Format Tests (2 tests)
-//    - Consistent error structure
-//    - Error metadata validation
-//
-// ✅ Edge Cases (7 tests)
-//    - Boundary value testing
-//    - Special character handling
-//    - Unicode support
-//    - Null/empty value handling
-//
-// Total: 49 comprehensive integration tests
-// Coverage: >85% of authentication flow
-// Security: SQL injection, XSS, token validation
-// Performance: Response time validation
-// =============================================================================
