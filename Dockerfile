@@ -16,7 +16,7 @@ COPY --link package*.json ./
 
 # Install dependencies with cache mount
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --only=production && \
+    npm install && \
     npm cache clean --force
 
 # Copy Prisma schema
@@ -72,4 +72,4 @@ USER appuser
 ENTRYPOINT ["tini", "--"]
 
 # Start application
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/index.js"]

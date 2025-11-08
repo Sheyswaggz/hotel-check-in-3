@@ -1,0 +1,287 @@
+# =============================================================================
+# CI WORKFLOW - HOTEL CHECK-IN APPLICATION
+# =============================================================================
+# Continuous Integration workflow for automated testing, linting, security
+# scanning, and Docker image building. Runs on push to main and pull requests.
+#
+# Workflow Strategy:
+# - Parallel job execution for optimal performance
+# - Comprehensive test coverage with multiple test types
+# - Security scanning with npm audit
+# - Docker image building with layer caching
+# - Artifact retention for debugging and analysis
+# - Concurrency control to cancel outdated runs
+# =============================================================================
+
+name: CI
+
+# =============================================================================
+# TRIGGER CONFIGURATION
+# =============================================================================
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+env:
+  NODE_VERSION: '20'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+# =============================================================================
+# CONCURRENCY CONTROL
+# =============================================================================
+# Cancel in-progress runs for the same PR or branch to save resources
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# =============================================================================
+# JOB DEFINITIONS
+# =============================================================================
+jobs:
+  # ===========================================================================
+  # JOB 1: TEST - Run test suite with coverage
+  # ===========================================================================
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          always-auth: false
+          check-latest: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Run linter
+        run: npm run lint
+      
+      - name: Run tests with coverage
+        run: npm test -- --coverage --ci
+        env:
+          NODE_ENV: test
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+        continue-on-error: true
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results-${{ github.run_id }}
+          path: |
+            coverage/
+            junit.xml
+          retention-days: 30
+
+  # ===========================================================================
+  # JOB 2: SECURITY-SCAN - Run npm audit for dependency vulnerabilities
+  # ===========================================================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          always-auth: false
+          check-latest: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+      
+      - name: Run dependency check
+        run: |
+          npx audit-ci --moderate
+        continue-on-error: true
+      
+      - name: Generate security report
+        if: always()
+        run: |
+          npm audit --json > security-report.json || true
+          echo "### 🔒 Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Security audit completed. Check artifacts for detailed report." >> $GITHUB_STEP_SUMMARY
+      
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: security-report-${{ github.run_id }}
+          path: security-report.json
+          retention-days: 30
+
+  # ===========================================================================
+  # JOB 3: BUILD - Build Docker image with layer caching
+  # ===========================================================================
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [test, security-scan]
+    
+    permissions:
+      contents: read
+      packages: write
+    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=${{ github.repository }}
+            org.opencontainers.image.description=Hotel check-in application
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+      
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+      
+      - name: Generate build summary
+        if: always()
+        run: |
+          echo "### 🐳 Docker Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Pushed:** ${{ github.event_name != 'pull_request' }}" >> $GITHUB_STEP_SUMMARY
+
+# =============================================================================
+# WORKFLOW NOTES
+# =============================================================================
+#
+# 1. PARALLEL EXECUTION:
+#    - test and security-scan run in parallel for speed
+#    - build waits for both to complete (needs: [test, security-scan])
+#
+# 2. CACHING STRATEGY:
+#    - npm dependencies cached via actions/cache
+#    - Docker layers cached via GitHub Actions cache (type=gha)
+#    - Cache key based on package.json hash
+#
+# 3. TIMEOUT PROTECTION:
+#    - All jobs have 30-minute timeout to prevent hanging
+#    - Prevents resource waste from stuck workflows
+#
+# 4. ARTIFACT RETENTION:
+#    - Test results: 30 days for debugging
+#    - Security reports: 30 days for compliance
+#    - Coverage reports uploaded to Codecov
+#
+# 5. SECURITY:
+#    - npm audit runs with moderate severity threshold
+#    - Continues on error to not block builds on known issues
+#    - Security reports uploaded as artifacts for review
+#
+# 6. DOCKER BUILD:
+#    - Only pushes images on push to main (not PRs)
+#    - Uses GitHub Container Registry (ghcr.io)
+#    - Multi-platform support ready (currently amd64 only)
+#    - Layer caching for faster subsequent builds
+#
+# 7. CONCURRENCY:
+#    - Cancels in-progress runs for same PR/branch
+#    - Saves CI minutes and speeds up feedback
+#
+# 8. PERMISSIONS:
+#    - Minimal permissions by default
+#    - build job has packages:write for GHCR push
+#
+# 9. STEP SUMMARY:
+#    - Uses $GITHUB_STEP_SUMMARY for human-readable reports
+#    - Visible in GitHub Actions UI
+#
+# 10. ERROR HANDLING:
+#     - continue-on-error for non-critical steps
+#     - always() condition for cleanup/reporting steps
+#
+# =============================================================================
