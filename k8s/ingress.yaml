@@ -1,0 +1,201 @@
+# =============================================================================
+# KUBERNETES INGRESS MANIFEST - HOTEL CHECK-IN APPLICATION
+# =============================================================================
+# Production-ready Ingress configuration with TLS termination, path-based
+# routing, rate limiting, and security headers for external access to the
+# hotel check-in application APIs and web interface.
+#
+# Ingress Controller: NGINX
+# TLS: cert-manager with Let's Encrypt
+# Features: Rate limiting, CORS, security headers, path-based routing
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hotel-checkin-ingress
+  namespace: production
+  labels:
+    app: hotel-checkin
+    version: v1.0.0
+    component: ingress
+    tier: networking
+    managed-by: kubernetes
+  annotations:
+    # =============================================================================
+    # INGRESS CONTROLLER CONFIGURATION
+    # =============================================================================
+    kubernetes.io/ingress.class: "nginx"
+    
+    # =============================================================================
+    # TLS AND SSL CONFIGURATION
+    # =============================================================================
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+    nginx.ingress.kubernetes.io/ssl-ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384"
+    nginx.ingress.kubernetes.io/ssl-prefer-server-ciphers: "true"
+    
+    # =============================================================================
+    # CERT-MANAGER CONFIGURATION FOR AUTOMATIC TLS CERTIFICATES
+    # =============================================================================
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    cert-manager.io/acme-challenge-type: "http01"
+    
+    # =============================================================================
+    # RATE LIMITING CONFIGURATION
+    # =============================================================================
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    nginx.ingress.kubernetes.io/limit-whitelist: "10.0.0.0/8,172.16.0.0/12"
+    
+    # =============================================================================
+    # REQUEST/RESPONSE CONFIGURATION
+    # =============================================================================
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "8k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+    
+    # =============================================================================
+    # CORS CONFIGURATION FOR API ACCESS
+    # =============================================================================
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/cors-max-age: "3600"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization"
+    
+    # =============================================================================
+    # SECURITY HEADERS
+    # =============================================================================
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
+      more_set_headers "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'";
+    
+    # =============================================================================
+    # MONITORING AND OBSERVABILITY
+    # =============================================================================
+    nginx.ingress.kubernetes.io/enable-access-log: "true"
+    nginx.ingress.kubernetes.io/enable-rewrite-log: "false"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "10254"
+    
+    # =============================================================================
+    # ADDITIONAL METADATA
+    # =============================================================================
+    description: "Hotel check-in application ingress with TLS termination and security features"
+    contact: "devops@hotel-checkin.com"
+    documentation: "https://docs.hotel-checkin.com/deployment/ingress"
+
+spec:
+  # =============================================================================
+  # INGRESS CLASS
+  # =============================================================================
+  ingressClassName: nginx
+  
+  # =============================================================================
+  # TLS CONFIGURATION
+  # =============================================================================
+  tls:
+    - hosts:
+        - hotel-checkin.example.com
+        - api.hotel-checkin.example.com
+      secretName: hotel-checkin-tls-cert
+  
+  # =============================================================================
+  # ROUTING RULES
+  # =============================================================================
+  rules:
+    # =============================================================================
+    # MAIN APPLICATION DOMAIN
+    # =============================================================================
+    - host: hotel-checkin.example.com
+      http:
+        paths:
+          # Health check endpoint (no authentication required)
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: hotel-checkin-svc
+                port:
+                  number: 80
+          
+          # API endpoints
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: hotel-checkin-svc
+                port:
+                  number: 80
+          
+          # Root path for web interface
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hotel-checkin-svc
+                port:
+                  number: 80
+    
+    # =============================================================================
+    # API SUBDOMAIN (OPTIONAL DEDICATED API DOMAIN)
+    # =============================================================================
+    - host: api.hotel-checkin.example.com
+      http:
+        paths:
+          # Health check endpoint
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: hotel-checkin-svc
+                port:
+                  number: 80
+          
+          # Authentication endpoints
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: hotel-checkin-svc
+                port:
+                  number: 80
+          
+          # Room management endpoints
+          - path: /api/rooms
+            pathType: Prefix
+            backend:
+              service:
+                name: hotel-checkin-svc
+                port:
+                  number: 80
+          
+          # Reservation endpoints
+          - path: /api/reservations
+            pathType: Prefix
+            backend:
+              service:
+                name: hotel-checkin-svc
+                port:
+                  number: 80
+          
+          # Catch-all for other API endpoints
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: hotel-checkin-svc
+                port:
+                  number: 80
