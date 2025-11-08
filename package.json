@@ -23,7 +23,10 @@
     "docker:run": "docker run -p 3000:3000 hotel-checkin",
     "docker:compose:up": "docker-compose up",
     "docker:compose:down": "docker-compose down",
-    "docker:compose:logs": "docker-compose logs -f"
+    "docker:compose:logs": "docker-compose logs -f",
+    "ci:test": "npm test -- --ci --coverage --maxWorkers=2",
+    "ci:lint": "npm run lint -- --max-warnings=0",
+    "ci:build": "npm run build && docker build -t test ."
   },
   "keywords": [
     "hotel",
