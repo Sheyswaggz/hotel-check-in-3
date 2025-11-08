@@ -1,0 +1,245 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hotel-checkin-config
+  namespace: default
+  labels:
+    app: hotel-checkin
+    component: backend
+    version: v1.0.0
+    managed-by: kubernetes
+  annotations:
+    description: "Hotel check-in application configuration"
+    config.kubernetes.io/local-config: "true"
+data:
+  # =============================================================================
+  # APPLICATION CONFIGURATION
+  # =============================================================================
+  
+  # Node Environment
+  NODE_ENV: "production"
+  
+  # Server Configuration
+  PORT: "3000"
+  HOST: "0.0.0.0"
+  
+  # API Configuration
+  API_VERSION: "v1"
+  API_PREFIX: "/api"
+  
+  # =============================================================================
+  # LOGGING CONFIGURATION
+  # =============================================================================
+  
+  # Log Level (error, warn, info, http, verbose, debug)
+  LOG_LEVEL: "info"
+  
+  # Log Format (json, simple, combined)
+  LOG_FORMAT: "json"
+  
+  # Enable Request Logging
+  LOG_REQUESTS: "true"
+  
+  # =============================================================================
+  # DATABASE CONFIGURATION
+  # =============================================================================
+  
+  # Database Host
+  DB_HOST: "postgres-svc"
+  
+  # Database Port
+  DB_PORT: "5432"
+  
+  # Database Name
+  DB_NAME: "hotel_checkin"
+  
+  # Database Pool Configuration
+  DB_POOL_MIN: "2"
+  DB_POOL_MAX: "10"
+  DB_CONNECTION_TIMEOUT: "30000"
+  
+  # =============================================================================
+  # JWT CONFIGURATION
+  # =============================================================================
+  
+  # JWT Token Expiration (24 hours)
+  JWT_EXPIRES_IN: "24h"
+  
+  # JWT Refresh Token Expiration (7 days)
+  JWT_REFRESH_EXPIRES_IN: "7d"
+  
+  # JWT Authentication Enabled
+  JWT_ENABLED: "true"
+  
+  # =============================================================================
+  # SECURITY CONFIGURATION
+  # =============================================================================
+  
+  # Password Hashing Rounds
+  BCRYPT_ROUNDS: "10"
+  
+  # CORS Allowed Origins (comma-separated)
+  CORS_ORIGINS: "http://localhost:3000,http://localhost:3001"
+  
+  # CORS Enabled
+  CORS_ENABLED: "true"
+  
+  # =============================================================================
+  # RATE LIMITING CONFIGURATION
+  # =============================================================================
+  
+  # Maximum requests per window per IP
+  RATE_LIMIT_MAX: "100"
+  
+  # Rate limit window in milliseconds (15 minutes)
+  RATE_LIMIT_WINDOW: "900000"
+  
+  # =============================================================================
+  # FEATURE FLAGS
+  # =============================================================================
+  
+  # Room Management Feature
+  ROOM_MANAGEMENT_ENABLED: "true"
+  
+  # Reservation Feature
+  RESERVATION_ENABLED: "true"
+  
+  # Online Check-in Feature
+  FEATURE_ONLINE_CHECKIN: "true"
+  
+  # Mobile Key Feature
+  FEATURE_MOBILE_KEY: "false"
+  
+  # Payment Processing Feature
+  FEATURE_PAYMENT_PROCESSING: "true"
+  
+  # Analytics Feature
+  FEATURE_ANALYTICS: "true"
+  
+  # Beta Features
+  FEATURE_BETA: "false"
+  
+  # =============================================================================
+  # API DOCUMENTATION
+  # =============================================================================
+  
+  # Enable API Documentation Endpoint
+  ENABLE_API_DOCS: "true"
+  
+  # API Documentation Path
+  API_DOCS_PATH: "/api-docs"
+  
+  # =============================================================================
+  # HEALTH CHECK CONFIGURATION
+  # =============================================================================
+  
+  # Health Check Endpoint
+  HEALTH_CHECK_PATH: "/health"
+  
+  # Readiness Check Endpoint
+  READINESS_CHECK_PATH: "/ready"
+  
+  # =============================================================================
+  # FILE UPLOAD CONFIGURATION
+  # =============================================================================
+  
+  # Maximum file upload size in bytes (10MB)
+  MAX_FILE_SIZE: "10485760"
+  
+  # Allowed file upload types (comma-separated MIME types)
+  ALLOWED_FILE_TYPES: "image/jpeg,image/png,application/pdf"
+  
+  # File upload directory
+  UPLOAD_DIR: "/app/uploads"
+  
+  # =============================================================================
+  # MONITORING AND OBSERVABILITY
+  # =============================================================================
+  
+  # Enable Prometheus Metrics
+  METRICS_ENABLED: "true"
+  
+  # Metrics Endpoint
+  METRICS_PATH: "/metrics"
+  
+  # Metrics Port
+  METRICS_PORT: "9090"
+  
+  # Application Performance Monitoring Service Name
+  APM_SERVICE_NAME: "hotel-checkin-api"
+  
+  # Sentry Environment
+  SENTRY_ENVIRONMENT: "production"
+  
+  # =============================================================================
+  # CACHE CONFIGURATION
+  # =============================================================================
+  
+  # Cache Enabled
+  CACHE_ENABLED: "true"
+  
+  # Cache TTL in seconds (1 hour)
+  CACHE_TTL: "3600"
+  
+  # =============================================================================
+  # RESERVATION CONFIGURATION
+  # =============================================================================
+  
+  # Minimum advance booking days
+  MIN_ADVANCE_BOOKING_DAYS: "0"
+  
+  # Maximum advance booking days
+  MAX_ADVANCE_BOOKING_DAYS: "365"
+  
+  # Minimum stay duration in days
+  MIN_STAY_DAYS: "1"
+  
+  # Maximum stay duration in days
+  MAX_STAY_DAYS: "30"
+  
+  # =============================================================================
+  # PAGINATION CONFIGURATION
+  # =============================================================================
+  
+  # Default page number
+  DEFAULT_PAGE: "1"
+  
+  # Default items per page
+  DEFAULT_LIMIT: "10"
+  
+  # Maximum items per page
+  MAX_LIMIT: "100"
+  
+  # =============================================================================
+  # TIMEZONE CONFIGURATION
+  # =============================================================================
+  
+  # Application Timezone
+  TZ: "UTC"
+  
+  # =============================================================================
+  # GRACEFUL SHUTDOWN CONFIGURATION
+  # =============================================================================
+  
+  # Graceful shutdown timeout in milliseconds (30 seconds)
+  SHUTDOWN_TIMEOUT: "30000"
+  
+  # =============================================================================
+  # REQUEST CONFIGURATION
+  # =============================================================================
+  
+  # Request timeout in seconds
+  REQUEST_TIMEOUT: "30"
+  
+  # Maximum request body size
+  MAX_REQUEST_BODY_SIZE: "10mb"
+  
+  # =============================================================================
+  # EXTERNAL SERVICES CONFIGURATION
+  # =============================================================================
+  
+  # External API timeout in seconds
+  EXTERNAL_API_TIMEOUT: "30"
+  
+  # Maximum connections to external services
+  MAX_EXTERNAL_CONNECTIONS: "100"
