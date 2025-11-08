@@ -1,0 +1,201 @@
+# =============================================================================
+# DEPENDABOT CONFIGURATION - AUTOMATED DEPENDENCY UPDATES
+# =============================================================================
+# This configuration enables Dependabot to automatically check for dependency
+# updates across npm packages and GitHub Actions workflows. Dependabot will
+# create pull requests for outdated dependencies on a weekly schedule.
+#
+# Documentation: https://docs.github.com/en/code-security/dependabot
+# =============================================================================
+
+version: 2
+
+# =============================================================================
+# UPDATE CONFIGURATIONS
+# =============================================================================
+# Define separate update configurations for different package ecosystems.
+# Each ecosystem has its own schedule, reviewers, and commit conventions.
+# =============================================================================
+
+updates:
+  # ---------------------------------------------------------------------------
+  # NPM PACKAGE ECOSYSTEM
+  # ---------------------------------------------------------------------------
+  # Monitors package.json and package-lock.json for outdated npm dependencies.
+  # Includes both production dependencies and devDependencies.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    # Directory containing package.json (repository root)
+    directory: "/"
+    
+    # Update schedule configuration
+    schedule:
+      # Check for updates weekly on Mondays at 9:00 AM UTC
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    
+    # Pull request configuration
+    open-pull-requests-limit: 10
+    
+    # Commit message configuration
+    commit-message:
+      # Prefix for commit messages (conventional commits format)
+      prefix: "chore(deps)"
+      # Include dependency name in commit message
+      include: "scope"
+    
+    # Reviewers configuration
+    # Automatically request review from specified users
+    reviewers:
+      - "team-leads"
+    
+    # Assignees configuration
+    # Automatically assign PR to specified users
+    assignees:
+      - "team-leads"
+    
+    # Labels to apply to pull requests
+    labels:
+      - "dependencies"
+      - "npm"
+      - "automated"
+    
+    # Milestone to associate with pull requests (optional)
+    # milestone: 1
+    
+    # Version update strategy
+    # Allow both direct and indirect (transitive) dependency updates
+    versioning-strategy: "auto"
+    
+    # Ignore specific dependencies (if needed)
+    # ignore:
+    #   - dependency-name: "package-name"
+    #     versions: ["1.x", "2.x"]
+
+  # ---------------------------------------------------------------------------
+  # GITHUB ACTIONS ECOSYSTEM
+  # ---------------------------------------------------------------------------
+  # Monitors workflow files for outdated GitHub Actions versions.
+  # Ensures CI/CD workflows use the latest stable action versions.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    # Directory containing workflow files
+    directory: "/.github/workflows"
+    
+    # Update schedule configuration
+    schedule:
+      # Check for updates weekly on Mondays at 9:00 AM UTC
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    
+    # Pull request configuration
+    open-pull-requests-limit: 5
+    
+    # Commit message configuration
+    commit-message:
+      # Prefix for commit messages (conventional commits format)
+      prefix: "chore(ci)"
+      # Include action name in commit message
+      include: "scope"
+    
+    # Reviewers configuration
+    # Automatically request review from specified users
+    reviewers:
+      - "team-leads"
+    
+    # Assignees configuration
+    # Automatically assign PR to specified users
+    assignees:
+      - "team-leads"
+    
+    # Labels to apply to pull requests
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "ci-cd"
+      - "automated"
+    
+    # Milestone to associate with pull requests (optional)
+    # milestone: 1
+
+# =============================================================================
+# CONFIGURATION NOTES
+# =============================================================================
+#
+# 1. SCHEDULE STRATEGY:
+#    - Weekly updates on Mondays to start the week with fresh dependencies
+#    - 9:00 AM UTC timing to align with team working hours
+#    - Prevents overwhelming the team with daily update PRs
+#
+# 2. PULL REQUEST LIMITS:
+#    - npm: 10 concurrent PRs (higher limit due to more dependencies)
+#    - github-actions: 5 concurrent PRs (fewer actions to update)
+#    - Prevents PR spam while maintaining update velocity
+#
+# 3. COMMIT MESSAGE FORMAT:
+#    - Follows conventional commits specification
+#    - npm: "chore(deps): update package-name to version X.Y.Z"
+#    - actions: "chore(ci): update action-name to version X.Y.Z"
+#    - Enables automated changelog generation
+#
+# 4. REVIEWERS AND ASSIGNEES:
+#    - Configure "team-leads" as a GitHub team in repository settings
+#    - Ensures dependency updates are reviewed before merging
+#    - Maintains code quality and security standards
+#
+# 5. LABELS:
+#    - "dependencies": All dependency updates
+#    - "npm" or "github-actions": Ecosystem-specific label
+#    - "automated": Indicates bot-generated PR
+#    - Enables filtering and automation workflows
+#
+# 6. SECURITY UPDATES:
+#    - Dependabot automatically creates PRs for security vulnerabilities
+#    - Security updates bypass the weekly schedule
+#    - Always prioritize reviewing and merging security updates
+#
+# 7. VERSION STRATEGY:
+#    - "auto": Dependabot determines the best versioning strategy
+#    - Respects semantic versioning and package.json constraints
+#    - Balances stability with keeping dependencies current
+#
+# 8. IGNORED DEPENDENCIES:
+#    - Uncomment and configure ignore rules for pinned versions
+#    - Use when specific versions are required for compatibility
+#    - Document reasons for ignoring updates
+#
+# 9. INTEGRATION WITH CI:
+#    - Dependabot PRs trigger CI workflows automatically
+#    - All tests must pass before merge
+#    - Ensures updates don't break existing functionality
+#
+# 10. MERGE STRATEGY:
+#     - Review Dependabot PRs regularly (weekly review cycle)
+#     - Group related updates when possible
+#     - Test thoroughly in development environment
+#     - Use GitHub's auto-merge for minor/patch updates (optional)
+#
+# =============================================================================
+# MAINTENANCE CHECKLIST
+# =============================================================================
+#
+# Weekly:
+# - [ ] Review open Dependabot PRs
+# - [ ] Merge approved updates
+# - [ ] Test in development environment
+#
+# Monthly:
+# - [ ] Review ignored dependencies
+# - [ ] Update reviewer/assignee configuration
+# - [ ] Audit dependency update patterns
+#
+# Quarterly:
+# - [ ] Review and optimize schedule timing
+# - [ ] Evaluate PR limit settings
+# - [ ] Update documentation
+#
+# =============================================================================
