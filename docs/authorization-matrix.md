@@ -14,3 +14,27 @@ The system supports two user roles:
 | **GUEST** | Standard user with limited access | Can access GUEST-designated routes only |
 
 ## Role Hierarchy
+
+## Endpoint Authorization Matrix
+
+### Room Management Endpoints
+
+| Endpoint | Method | Authentication Required | Authorized Roles | Description |
+|----------|--------|------------------------|------------------|-------------|
+| `/api/rooms` | GET | No | Public | List all rooms with filtering and pagination |
+| `/api/rooms/:id` | GET | No | Public | Get single room details by ID |
+| `/api/rooms` | POST | Yes | ADMIN | Create a new room |
+| `/api/rooms/:id` | PUT | Yes | ADMIN | Update existing room |
+| `/api/rooms/:id` | DELETE | Yes | ADMIN | Delete a room |
+
+### Reservation Management Endpoints
+
+| Endpoint | Method | Authentication Required | Authorized Roles | Description |
+|----------|--------|------------------------|------------------|-------------|
+| `/api/reservations` | POST | Yes | GUEST, ADMIN | Create new reservation with availability validation |
+| `/api/reservations` | GET | Yes | GUEST (own), ADMIN (all) | List reservations with role-based filtering |
+| `/api/reservations/:id` | GET | Yes | GUEST (own), ADMIN (all) | Get reservation details by ID |
+| `/api/reservations/:id/confirm` | PUT | Yes | ADMIN | Confirm pending reservation |
+| `/api/reservations/:id/check-in` | PUT | Yes | ADMIN | Process guest check-in |
+| `/api/reservations/:id/check-out` | PUT | Yes | ADMIN | Process guest check-out |
+| `/api/reservations/:id/cancel` | PUT | Yes | GUEST (own), ADMIN (all) | Cancel reservation with ownership validation |
