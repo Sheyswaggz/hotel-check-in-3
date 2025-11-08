@@ -14,3 +14,15 @@ The system supports two user roles:
 | **GUEST** | Standard user with limited access | Can access GUEST-designated routes only |
 
 ## Role Hierarchy
+
+## Endpoint Authorization Matrix
+
+### Room Management Endpoints
+
+| Endpoint | Method | Authentication Required | Authorized Roles | Description |
+|----------|--------|------------------------|------------------|-------------|
+| `/api/rooms` | GET | No | Public | List all rooms with filtering and pagination |
+| `/api/rooms/:id` | GET | No | Public | Get single room details by ID |
+| `/api/rooms` | POST | Yes | ADMIN | Create a new room |
+| `/api/rooms/:id` | PUT | Yes | ADMIN | Update existing room |
+| `/api/rooms/:id` | DELETE | Yes | ADMIN | Delete a room |
