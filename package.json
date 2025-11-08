@@ -1,7 +1,7 @@
 {
   "name": "hotel-check-in-3",
   "version": "1.0.0",
-  "description": "Hotel Check-in System API",
+  "description": "Hotel check-in system with role-based access control",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -13,17 +13,19 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "prisma:seed": "tsx prisma/seed.ts"
   },
   "keywords": [
     "hotel",
     "check-in",
-    "api",
+    "reservation",
     "typescript",
-    "express"
+    "express",
+    "prisma"
   ],
   "author": "",
   "license": "ISC",
@@ -62,6 +64,7 @@
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1"
   }
 }
