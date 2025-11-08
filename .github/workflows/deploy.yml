@@ -302,7 +302,7 @@ jobs:
       
       - name: Upload deployment manifest
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: deployment-manifest-${{ github.run_id }}
           path: deployment-manifest.json

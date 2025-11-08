@@ -104,7 +104,7 @@ jobs:
       
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-results-${{ github.run_id }}
           path: |
@@ -154,7 +154,7 @@ jobs:
       
       - name: Upload security report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: security-report-${{ github.run_id }}
           path: security-report.json
