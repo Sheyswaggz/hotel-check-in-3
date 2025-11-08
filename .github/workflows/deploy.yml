@@ -92,7 +92,7 @@ jobs:
           output-file: sbom-development.spdx.json
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         with:
           name: sbom-development
           path: sbom-development.spdx.json
@@ -286,7 +286,7 @@ jobs:
 
       - name: Upload deployment record
         if: success()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         with:
           name: deployment-record-development
           path: deployment-record.json
